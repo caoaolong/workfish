@@ -44,7 +44,7 @@ function watchDir(dir: string): void {
   }
 }
 
-/** 监视 workspace 下 nodes/ 与 types/，变更后 debounce 并失效 catalog 缓存 */
+/** 监视 workspace 下 nodes/，变更后 debounce 并失效 catalog 缓存 */
 export function startWorkspaceWatch(workspacePath: string): void {
   const resolved = path.resolve(workspacePath);
   if (watchedWorkspace === resolved) {
@@ -53,5 +53,4 @@ export function startWorkspaceWatch(workspacePath: string): void {
   stopWorkspaceWatch();
   watchedWorkspace = resolved;
   watchDir(path.join(resolved, 'nodes'));
-  watchDir(path.join(resolved, 'types'));
 }

@@ -1,19 +1,23 @@
-import { Alert, Descriptions, Empty, Select, Space, Tag, Typography } from 'antd';
+import {
+  Alert,
+  Descriptions,
+  Empty,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
 import {
   isCompatible,
   type EnvironmentCatalog,
   type FieldSpec,
   type NodeSpec,
-  type TypeDef,
 } from '@workfish/spec';
 import type { Edge, Node } from '@xyflow/react';
-import { isBuiltinStructNode, readStructTypeRef } from './builtinNodes.js';
+import { ParamFields, readInputValues } from './ParamFields.js';
 import type { WorkfishEdgeData, WorkfishNodeData } from './workflowMapper.js';
 
 function fieldSummary(field: FieldSpec): string {
-  if (field.type === 'ref' && field.ref) {
-    return `ref:${field.ref}`;
-  }
   if (field.type === 'array' && field.items) {
     return `array<${fieldSummary(field.items)}>`;
   }
@@ -59,11 +63,10 @@ type Props = {
   selectedNode: Node<WorkfishNodeData> | null;
   selectedEdge: Edge<WorkfishEdgeData> | null;
   nodes: Node<WorkfishNodeData>[];
-  typesMap: Map<string, TypeDef>;
   environments: EnvironmentCatalog;
   onEnvBindingChange: (nodeId: string, key: string, envId: string | undefined) => void;
   onNodeEnvIdsChange: (nodeId: string, envIds: string[]) => void;
-  onStructTypeChange: (nodeId: string, typeRef: string | undefined) => void;
+  onParamsChange: (nodeId: string, values: Record<string, unknown> | undefined) => void;
 };
 
 function resolvePortSpec(
@@ -107,11 +110,10 @@ export function Inspector({
   selectedNode,
   selectedEdge,
   nodes,
-  typesMap,
   environments,
   onEnvBindingChange,
   onNodeEnvIdsChange,
-  onStructTypeChange,
+  onParamsChange,
 }: Props) {
   if (!selectedNode && !selectedEdge) {
     return (
@@ -129,20 +131,8 @@ export function Inspector({
     const envReqs = spec?.environments ?? [];
     const bindings = readEnvBindings(selectedNode);
     const nodeEnvIds = readNodeEnvIds(selectedNode);
-    const isStruct = isBuiltinStructNode(selectedNode.data.typeId);
-    const isScriptNode = !isStruct;
-    const typeRef = readStructTypeRef(selectedNode.data.params);
-    const typeMissing = Boolean(typeRef && !typesMap.has(typeRef));
-    const typeOptions = [...typesMap.values()].map((t) => ({
-      value: t.id,
-      label: `${t.name}（${t.id}）`,
-    }));
-    const envOptions = environments.groups.map((g) => ({
-      label: g.name,
-      options: environments.items
-        .filter((i) => i.groupId === g.id)
-        .map((i) => ({ value: i.id, label: i.name })),
-    }));
+    const inputValues = readInputValues(selectedNode.data.params);
+    const envOptions = environments.items.map((i) => ({ value: i.id, label: i.name }));
 
     return (
       <aside className="editor-sidebar editor-sidebar-right">
@@ -166,122 +156,103 @@ export function Inspector({
             message="目录中找不到此节点类型，连线校验可能失败。"
           />
         ) : null}
-        {isStruct ? (
-          <div style={{ marginBottom: 16 }}>
-            <Typography.Title level={5} style={{ fontSize: 14 }}>
-              绑定数据结构
-            </Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-              选择后按字段生成左侧输入、右侧输出连接桩。
-            </Typography.Paragraph>
-            <Select
-              style={{ width: '100%' }}
-              placeholder="选择数据结构"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              status={typeMissing || !typeRef ? 'warning' : undefined}
-              value={typeRef}
-              options={typeOptions}
-              onChange={(v) => onStructTypeChange(selectedNode.id, v)}
-            />
-            {typeMissing ? (
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginTop: 8 }}
-                message={`找不到类型「${typeRef}」，请重新选择。`}
-              />
-            ) : null}
-            {!typeRef ? (
-              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-                尚未选择，节点暂无连接桩。
-              </Typography.Text>
-            ) : null}
-          </div>
-        ) : null}
-        {isScriptNode ? (
-          <div style={{ marginBottom: 16 }}>
-            <Typography.Title level={5} style={{ fontSize: 14 }}>
-              当前环境
-            </Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-              为该脚本节点选择运行时使用的环境（可多选）。
-            </Typography.Paragraph>
-            <Select
-              mode="multiple"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              maxTagCount="responsive"
-              style={{ width: '100%' }}
-              placeholder={
-                environments.items.length === 0 ? '暂无可用环境，请先在左侧创建' : '选择环境'
-              }
-              disabled={environments.items.length === 0}
-              value={nodeEnvIds}
-              options={envOptions}
-              onChange={(v) => onNodeEnvIdsChange(selectedNode.id, v)}
-            />
-          </div>
-        ) : null}
         {spec ? (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            {spec.description ? (
-              <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-                {spec.description}
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Title level={5} style={{ fontSize: 14 }}>
+                当前环境
+              </Typography.Title>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                为该脚本节点选择运行时使用的环境（可多选）。
               </Typography.Paragraph>
-            ) : null}
-
-            {envReqs.length > 0 ? (
-              <div>
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                maxTagCount="responsive"
+                style={{ width: '100%' }}
+                placeholder={
+                  environments.items.length === 0 ? '暂无可用环境，请先在左侧创建' : '选择环境'
+                }
+                disabled={environments.items.length === 0}
+                value={nodeEnvIds}
+                options={envOptions}
+                onChange={(v) => onNodeEnvIdsChange(selectedNode.id, v)}
+              />
+            </div>
+            {Object.keys(spec.inputs).length > 0 ? (
+              <div style={{ marginBottom: 16 }}>
                 <Typography.Title level={5} style={{ fontSize: 14 }}>
-                  环境槽位绑定
+                  参数
                 </Typography.Title>
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-                  该脚本声明了命名槽位，请为每个槽位指定一个环境。
+                  按脚本声明的输入项填写，随工作流保存。
                 </Typography.Paragraph>
-                <Space direction="vertical" style={{ width: '100%' }} size="small">
-                  {envReqs.map((req) => {
-                    const bound = bindings[req.key];
-                    const missing = !bound;
-                    return (
-                      <div key={req.key}>
-                        <Typography.Text strong>{req.name}</Typography.Text>{' '}
-                        <Typography.Text code type="secondary">
-                          {req.key}
-                        </Typography.Text>
-                        {req.description ? (
-                          <Typography.Paragraph
-                            type="secondary"
-                            style={{ margin: '2px 0 6px', fontSize: 12 }}
-                          >
-                            {req.description}
-                          </Typography.Paragraph>
-                        ) : (
-                          <div style={{ height: 6 }} />
-                        )}
-                        <Select
-                          style={{ width: '100%' }}
-                          placeholder="选择环境"
-                          allowClear
-                          showSearch
-                          optionFilterProp="label"
-                          status={missing ? 'warning' : undefined}
-                          value={bound}
-                          options={envOptions}
-                          onChange={(v) => onEnvBindingChange(selectedNode.id, req.key, v)}
-                        />
-                      </div>
-                    );
-                  })}
-                </Space>
+                <ParamFields
+                  key={selectedNode.id}
+                  spec={spec}
+                  values={inputValues}
+                  onChange={(v) => onParamsChange(selectedNode.id, v)}
+                />
               </div>
             ) : null}
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {spec.description ? (
+                <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+                  {spec.description}
+                </Typography.Paragraph>
+              ) : null}
 
-            <FieldBlock title="输入" fields={spec.inputs} />
-            <FieldBlock title="输出" fields={spec.outputs} />
-          </Space>
+              {envReqs.length > 0 ? (
+                <div>
+                  <Typography.Title level={5} style={{ fontSize: 14 }}>
+                    环境槽位绑定
+                  </Typography.Title>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                    该脚本声明了命名槽位，请为每个槽位指定一个环境。
+                  </Typography.Paragraph>
+                  <Space direction="vertical" style={{ width: '100%' }} size="small">
+                    {envReqs.map((req) => {
+                      const bound = bindings[req.key];
+                      const missing = !bound;
+                      return (
+                        <div key={req.key}>
+                          <Typography.Text strong>{req.name}</Typography.Text>{' '}
+                          <Typography.Text code type="secondary">
+                            {req.key}
+                          </Typography.Text>
+                          {req.description ? (
+                            <Typography.Paragraph
+                              type="secondary"
+                              style={{ margin: '2px 0 6px', fontSize: 12 }}
+                            >
+                              {req.description}
+                            </Typography.Paragraph>
+                          ) : (
+                            <div style={{ height: 6 }} />
+                          )}
+                          <Select
+                            style={{ width: '100%' }}
+                            placeholder="选择环境"
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            status={missing ? 'warning' : undefined}
+                            value={bound}
+                            options={envOptions}
+                            onChange={(v) => onEnvBindingChange(selectedNode.id, req.key, v)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </Space>
+                </div>
+              ) : null}
+
+              <FieldBlock title="输出" fields={spec.outputs} />
+            </Space>
+          </>
         ) : (
           <Typography.Text type="secondary">无规格信息</Typography.Text>
         )}
@@ -299,7 +270,7 @@ export function Inspector({
     const targetField =
       targetNode && targetPort ? resolvePortSpec(targetNode, targetPort, 'input') : undefined;
     const compatible =
-      sourceField && targetField ? isCompatible(sourceField, targetField, typesMap) : false;
+      sourceField && targetField ? isCompatible(sourceField, targetField) : false;
 
     return (
       <aside className="editor-sidebar editor-sidebar-right">

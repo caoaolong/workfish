@@ -1,56 +1,19 @@
-import { collectRefs } from './compatibility.js';
 import { extractMetaFromPy } from './extract-py.js';
 import { extractMetaFromTs } from './extract-ts.js';
-import type { Diagnostic, NodeCatalogItem, NodeSpec, TypeDef } from './schema.js';
-import { validateNodeSpec, validateTypeDef } from './validate.js';
+import type { Diagnostic, NodeCatalogItem, NodeSpec } from './schema.js';
+import { validateNodeSpec } from './validate.js';
 
 export type ScanNodesDirOpts = {
   nodesDir: string;
-  typesDir: string;
   runtime: 'node' | 'python';
   readFile: (p: string) => string;
   listDirs: (p: string) => string[];
-  /** 列出目录内文件名（用于加载 typesDir 下 *.type.json） */
-  listFiles: (p: string) => string[];
   getMtime?: (p: string) => string;
 };
 
 function joinPath(dir: string, name: string): string {
   const sep = dir.includes('\\') ? '\\' : '/';
   return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
-}
-
-function loadTypes(opts: ScanNodesDirOpts): Map<string, TypeDef> {
-  const map = new Map<string, TypeDef>();
-  let files: string[];
-  try {
-    files = opts.listFiles(opts.typesDir);
-  } catch {
-    return map;
-  }
-  for (const file of files) {
-    if (!file.endsWith('.type.json')) {
-      continue;
-    }
-    const fullPath = joinPath(opts.typesDir, file);
-    let raw: string;
-    try {
-      raw = opts.readFile(fullPath);
-    } catch {
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-    const result = validateTypeDef(parsed);
-    if (result.ok) {
-      map.set(result.value.id, result.value);
-    }
-  }
-  return map;
 }
 
 function findEntryPath(
@@ -105,7 +68,6 @@ function catalogError(
 }
 
 export function scanNodesDir(opts: ScanNodesDirOpts): NodeCatalogItem[] {
-  const types = loadTypes(opts);
   let dirNames: string[];
   try {
     dirNames = opts.listDirs(opts.nodesDir);
@@ -175,15 +137,6 @@ export function scanNodesDir(opts: ScanNodesDirOpts): NodeCatalogItem[] {
         path: 'id',
         message: `meta.id「${spec.id}」与目录名「${dirName}」不一致`,
       });
-    }
-
-    for (const refId of collectRefs(spec)) {
-      if (!types.has(refId)) {
-        errors.push({
-          path: 'ref',
-          message: `未找到类型定义: ${refId}`,
-        });
-      }
     }
 
     let mtime = '';

@@ -85,12 +85,12 @@ export function WorkflowListModal({ open, currentId, onCancel, onOpen }: Props) 
       onCancel={onCancel}
       footer={null}
       width={720}
-      destroyOnClose
+      destroyOnHidden
       className="workflow-list-modal"
     >
       {loading ? (
         <div style={{ padding: 48, textAlign: 'center' }}>
-          <Spin tip="加载工作流列表…" />
+          <Spin description="加载工作流列表…" />
         </div>
       ) : sorted.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无工作流，可先新建并保存" />

@@ -49,7 +49,6 @@ export type {
   FieldSpec,
   NodeCatalogItem,
   NodeSpec,
-  TypeDef,
   WorkflowDocument,
   WorkflowEdge,
   WorkflowNode,

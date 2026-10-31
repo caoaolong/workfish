@@ -8,7 +8,6 @@ import { loadConfig } from './config.js';
 
 const EMPTY_CATALOG: EnvironmentCatalog = {
   version: 1,
-  groups: [],
   items: [],
 };
 
@@ -23,7 +22,7 @@ export function getEnvironmentCatalog(): EnvironmentCatalog {
   }
   const filePath = catalogPath(config.workspacePath);
   if (!existsSync(filePath)) {
-    return { ...EMPTY_CATALOG, groups: [], items: [] };
+    return { ...EMPTY_CATALOG, items: [] };
   }
   let parsed: unknown;
   try {

@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useImperativeHandle, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Button,
@@ -14,11 +14,11 @@ import {
 } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import type { EnvironmentCatalog, EnvironmentGroup, EnvironmentItem } from '@workfish/spec';
+import type { EnvironmentCatalog, EnvironmentItem } from '@workfish/spec';
 import { formatApiError, putEnvironments } from '../api/client.js';
 
 export type EnvPanelHandle = {
-  openCreateGroup: () => void;
+  openCreateEnv: () => void;
 };
 
 type Props = {
@@ -63,31 +63,13 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
   ref,
 ) {
   const { message, modal } = AntdApp.useApp();
-  const [groupModal, setGroupModal] = useState<{ open: boolean; editing?: EnvironmentGroup }>({
-    open: false,
-  });
   const [envModal, setEnvModal] = useState<{
     open: boolean;
-    groupId: string;
     editing?: EnvironmentItem;
   } | null>(null);
-  const [groupName, setGroupName] = useState('');
   const [envName, setEnvName] = useState('');
   const [kvRows, setKvRows] = useState<KvRow[]>([]);
   const [saving, setSaving] = useState(false);
-
-  const byGroup = useMemo(() => {
-    const map = new Map<string, EnvironmentItem[]>();
-    for (const g of catalog.groups) {
-      map.set(g.id, []);
-    }
-    for (const item of catalog.items) {
-      const list = map.get(item.groupId) ?? [];
-      list.push(item);
-      map.set(item.groupId, list);
-    }
-    return map;
-  }, [catalog]);
 
   const persist = async (next: EnvironmentCatalog) => {
     setSaving(true);
@@ -103,58 +85,13 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
     }
   };
 
-  const openCreateGroup = () => {
-    setGroupName('');
-    setGroupModal({ open: true });
-  };
-
-  useImperativeHandle(ref, () => ({ openCreateGroup }), []);
-
-  const openEditGroup = (g: EnvironmentGroup) => {
-    setGroupName(g.name);
-    setGroupModal({ open: true, editing: g });
-  };
-
-  const saveGroup = async () => {
-    const name = groupName.trim();
-    if (!name) {
-      message.warning('请填写分组名称');
-      return;
-    }
-    const editing = groupModal.editing;
-    const next: EnvironmentCatalog = {
-      ...catalog,
-      groups: editing
-        ? catalog.groups.map((g) => (g.id === editing.id ? { ...g, name } : g))
-        : [...catalog.groups, { id: newId('grp'), name }],
-    };
-    await persist(next);
-    setGroupModal({ open: false });
-  };
-
-  const deleteGroup = (g: EnvironmentGroup) => {
-    modal.confirm({
-      title: '删除分组',
-      content: `确定删除分组「${g.name}」及其下全部环境吗？`,
-      okType: 'danger',
-      okText: '删除',
-      cancelText: '取消',
-      onOk: async () => {
-        const next: EnvironmentCatalog = {
-          version: 1,
-          groups: catalog.groups.filter((x) => x.id !== g.id),
-          items: catalog.items.filter((x) => x.groupId !== g.id),
-        };
-        await persist(next);
-      },
-    });
-  };
-
-  const openCreateEnv = (groupId: string) => {
+  const openCreateEnv = () => {
     setEnvName('');
     setKvRows([{ key: `kv-${Date.now()}`, name: '', value: '' }]);
-    setEnvModal({ open: true, groupId });
+    setEnvModal({ open: true });
   };
+
+  useImperativeHandle(ref, () => ({ openCreateEnv }), []);
 
   const openEditEnv = (item: EnvironmentItem) => {
     setEnvName(item.name);
@@ -165,7 +102,7 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
         value,
       })),
     );
-    setEnvModal({ open: true, groupId: item.groupId, editing: item });
+    setEnvModal({ open: true, editing: item });
   };
 
   const saveEnv = async () => {
@@ -188,10 +125,9 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
     const editing = envModal.editing;
     const item: EnvironmentItem = editing
       ? { ...editing, name, values }
-      : { id: newId('env'), groupId: envModal.groupId, name, values };
+      : { id: newId('env'), name, values };
     const next: EnvironmentCatalog = {
       version: 1,
-      groups: catalog.groups,
       items: editing
         ? catalog.items.map((x) => (x.id === editing.id ? item : x))
         : [...catalog.items, item],
@@ -210,7 +146,6 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
       onOk: async () => {
         const next: EnvironmentCatalog = {
           version: 1,
-          groups: catalog.groups,
           items: catalog.items.filter((x) => x.id !== item.id),
         };
         await persist(next);
@@ -218,136 +153,54 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
     });
   };
 
-  const treeData: DataNode[] = catalog.groups.map((g) => {
-    const items = byGroup.get(g.id) ?? [];
-    return {
-      key: `group:${g.id}`,
-      title: (
-        <TreeTitle
-          label={<Typography.Text strong>{g.name}</Typography.Text>}
-          hint={`${items.length} 个环境`}
-          actions={
-            <>
-              <Button
-                type="text"
-                size="small"
-                icon={<PlusOutlined />}
-                title="新建环境"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openCreateEnv(g.id);
-                }}
-              />
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openEditGroup(g);
-                }}
-              />
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteGroup(g);
-                }}
-              />
-            </>
-          }
-        />
-      ),
-      children:
-        items.length === 0
-          ? [
-              {
-                key: `group:${g.id}:empty`,
-                isLeaf: true,
-                selectable: false,
-                title: (
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    暂无环境
-                  </Typography.Text>
-                ),
-              },
-            ]
-          : items.map((item) => ({
-              key: `env:${item.id}`,
-              isLeaf: true,
-              selectable: false,
-              title: (
-                <TreeTitle
-                  label={item.name}
-                  hint={`${Object.keys(item.values).length} 个变量`}
-                  actions={
-                    <>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditEnv(item);
-                        }}
-                      />
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteEnv(item);
-                        }}
-                      />
-                    </>
-                  }
-                />
-              ),
-            })),
-    };
-  });
+  const treeData: DataNode[] = catalog.items.map((item) => ({
+    key: `env:${item.id}`,
+    isLeaf: true,
+    selectable: false,
+    title: (
+      <TreeTitle
+        label={item.name}
+        hint={`${Object.keys(item.values).length} 个变量`}
+        actions={
+          <>
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditEnv(item);
+              }}
+            />
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteEnv(item);
+              }}
+            />
+          </>
+        }
+      />
+    ),
+  }));
 
   return (
     <div className="sidebar-panel-body">
-      {catalog.groups.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无环境分组" />
+      {catalog.items.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无环境" />
       ) : (
         <Tree
-          key={[...catalog.groups.map((g) => g.id), ...catalog.items.map((i) => i.id)].join('|')}
+          key={catalog.items.map((i) => i.id).join('|')}
           className="sidebar-tree"
           blockNode
-          defaultExpandAll
           selectable={false}
           treeData={treeData}
         />
       )}
-
-      <Modal
-        title={groupModal.editing ? '编辑分组' : '新建分组'}
-        open={groupModal.open}
-        onCancel={() => setGroupModal({ open: false })}
-        onOk={() => void saveGroup()}
-        confirmLoading={saving}
-        okText="保存"
-        cancelText="取消"
-        destroyOnClose
-      >
-        <Form layout="vertical">
-          <Form.Item label="分组名称" required>
-            <Input
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              placeholder="例如 项目A"
-              autoFocus
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <Modal
         title={envModal?.editing ? '编辑环境' : '新建环境'}
@@ -358,7 +211,7 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
         okText="保存"
         cancelText="取消"
         width={560}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form layout="vertical">
           <Form.Item label="环境名称" required>
@@ -401,9 +254,8 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
                       )
                     }
                   />
-                  <Input.Password
+                  <Input
                     placeholder="值"
-                    visibilityToggle
                     value={row.value}
                     onChange={(e) =>
                       setKvRows((prev) =>

@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Alert, Button, Flex, Input, Space, Spin, Typography, App as AntdApp } from 'antd';
-import { FileAddOutlined, FolderOpenOutlined, SaveOutlined } from '@ant-design/icons';
+import { Alert, Button, Flex, Input, Segmented, Space, Spin, Typography, App as AntdApp } from 'antd';
+import { FileAddOutlined, FolderOpenOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import type { Edge, Node, OnSelectionChangeParams } from '@xyflow/react';
-import type { EnvironmentCatalog, NodeSpec, TypeDef } from '@workfish/spec';
+import type { EnvironmentCatalog, NodeSpec } from '@workfish/spec';
 import {
   formatApiError,
   getEnvironments,
   getNodes,
-  getTypes,
   postNodesRescan,
   getWorkflow,
   listWorkflows,
   putWorkflow,
 } from '../api/client.js';
 import type { NodeCatalogItem, WorkfishConfig, WorkflowDocument } from '../types.js';
-import { mergeBuiltinCatalog } from './builtinNodes.js';
 import { Inspector } from './Inspector.js';
+import { AppWall } from './AppWall.js';
 import { LeftSidebar } from './LeftSidebar.js';
 import { ResizeHandle } from './ResizeHandle.js';
 import { WorkflowCanvas, type WorkflowCanvasRef } from './WorkflowCanvas.js';
@@ -59,19 +58,13 @@ function buildSpecMap(catalog: NodeCatalogItem[]): Map<string, NodeSpec> {
   return map;
 }
 
-function buildTypesMap(types: TypeDef[]): Map<string, TypeDef> {
-  return new Map(types.map((t) => [t.id, t]));
-}
-
 export function EditorPage({ config, initWarning }: Props) {
   const { message } = AntdApp.useApp();
   const [leftWidth, setLeftWidth] = useState(() => readStoredWidth(LEFT_WIDTH_KEY, LEFT_DEFAULT));
   const [rightWidth, setRightWidth] = useState(() => readStoredWidth(RIGHT_WIDTH_KEY, RIGHT_DEFAULT));
   const [catalog, setCatalog] = useState<NodeCatalogItem[]>([]);
-  const [types, setTypes] = useState<TypeDef[]>([]);
   const [environments, setEnvironments] = useState<EnvironmentCatalog>({
     version: 1,
-    groups: [],
     items: [],
   });
   const [workflowMeta, setWorkflowMeta] = useState<Pick<WorkflowDocument, 'id' | 'name' | 'version'>>({
@@ -92,15 +85,14 @@ export function EditorPage({ config, initWarning }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [bootLoading, setBootLoading] = useState(true);
   const [workflowListOpen, setWorkflowListOpen] = useState(false);
+  const [mode, setMode] = useState<'flow' | 'apps'>('flow');
 
   const canvasRef = useRef<WorkflowCanvasRef>(null);
 
-  const catalogWithBuiltin = useMemo(() => mergeBuiltinCatalog(catalog), [catalog]);
-  const specByTypeId = useMemo(() => buildSpecMap(catalogWithBuiltin), [catalogWithBuiltin]);
-  const typesMap = useMemo(() => buildTypesMap(types), [types]);
+  const specByTypeId = useMemo(() => buildSpecMap(catalog), [catalog]);
   const readyNodes = useMemo(
-    () => catalogWithBuiltin.filter((n) => n.status === 'ready'),
-    [catalogWithBuiltin],
+    () => catalog.filter((n) => n.status === 'ready'),
+    [catalog],
   );
   const problemNodes = useMemo(() => catalog.filter((n) => n.status === 'error'), [catalog]);
 
@@ -114,13 +106,11 @@ export function EditorPage({ config, initWarning }: Props) {
   const refreshCatalog = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [nodes, typeList, envs] = await Promise.all([
+      const [nodes, envs] = await Promise.all([
         postNodesRescan(),
-        getTypes(),
         getEnvironments(),
       ]);
       setCatalog(nodes);
-      setTypes(typeList);
       setEnvironments(envs);
       message.success('资源已刷新');
     } catch (e) {
@@ -134,14 +124,12 @@ export function EditorPage({ config, initWarning }: Props) {
     setBootLoading(true);
     setLoadError(null);
     try {
-      const [nodes, typeList, envs, summaries] = await Promise.all([
+      const [nodes, envs, summaries] = await Promise.all([
         getNodes(),
-        getTypes(),
         getEnvironments(),
         listWorkflows(),
       ]);
       setCatalog(nodes);
-      setTypes(typeList);
       setEnvironments(envs);
       if (summaries.length > 0) {
         const first = summaries[0]!;
@@ -256,9 +244,23 @@ export function EditorPage({ config, initWarning }: Props) {
     });
   }, []);
 
-  const onStructTypeChange = useCallback((nodeId: string, typeRef: string | undefined) => {
-    canvasRef.current?.setStructTypeRef(nodeId, typeRef);
-  }, []);
+  const onParamsChange = useCallback(
+    (nodeId: string, values: Record<string, unknown> | undefined) => {
+      canvasRef.current?.patchNodeData(nodeId, (data) => {
+        const prevParams = { ...(data.params ?? {}) };
+        if (values && Object.keys(values).length > 0) {
+          prevParams.inputs = values;
+        } else {
+          delete prevParams.inputs;
+        }
+        return {
+          ...data,
+          params: Object.keys(prevParams).length > 0 ? prevParams : undefined,
+        };
+      });
+    },
+    [],
+  );
 
   const handleNew = () => {
     const id = `wf-${Date.now()}`;
@@ -299,7 +301,7 @@ export function EditorPage({ config, initWarning }: Props) {
   if (bootLoading) {
     return (
       <div className="editor-loading">
-        <Spin size="large" tip="正在加载编辑器…" />
+        <Spin size="large" description="正在加载编辑器…" />
       </div>
     );
   }
@@ -327,36 +329,60 @@ export function EditorPage({ config, initWarning }: Props) {
             <Typography.Title level={4} style={{ margin: 0, color: 'inherit' }}>
               Workfish
             </Typography.Title>
-            <Button
-              icon={<FolderOpenOutlined />}
-              onClick={() => setWorkflowListOpen(true)}
-            >
-              工作流
-            </Button>
-            <Space>
-              <Typography.Text type="secondary">名称</Typography.Text>
-              <Input
-                value={workflowMeta.name}
-                onChange={(e) => setWorkflowMeta((m) => ({ ...m, name: e.target.value }))}
-                style={{ width: 160 }}
-              />
-            </Space>
-            <Typography.Text type="secondary">
-              ID: <Typography.Text code>{workflowMeta.id}</Typography.Text>
-            </Typography.Text>
+            {mode === 'flow' ? (
+              <>
+                <Button
+                  icon={<FolderOpenOutlined />}
+                  onClick={() => setWorkflowListOpen(true)}
+                >
+                  工作流
+                </Button>
+                <Space>
+                  <Typography.Text type="secondary">名称</Typography.Text>
+                  <Input
+                    value={workflowMeta.name}
+                    onChange={(e) => setWorkflowMeta((m) => ({ ...m, name: e.target.value }))}
+                    style={{ width: 160 }}
+                  />
+                </Space>
+                <Typography.Text type="secondary">
+                  ID: <Typography.Text code>{workflowMeta.id}</Typography.Text>
+                </Typography.Text>
+              </>
+            ) : null}
           </Space>
+          <Segmented
+            value={mode}
+            onChange={(v) => setMode(v as 'flow' | 'apps')}
+            options={[
+              { value: 'flow', label: '工作流' },
+              { value: 'apps', label: '应用墙' },
+            ]}
+          />
           <Space>
-            <Button icon={<FileAddOutlined />} onClick={handleNew}>
-              新建
-            </Button>
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              loading={saving}
-              onClick={() => void handleSave()}
-            >
-              保存
-            </Button>
+            {mode === 'flow' ? (
+              <>
+                <Button icon={<FileAddOutlined />} onClick={handleNew}>
+                  新建
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  loading={saving}
+                  onClick={() => void handleSave()}
+                >
+                  保存
+                </Button>
+              </>
+            ) : (
+              <Button
+                icon={<ReloadOutlined />}
+                loading={refreshing}
+                onClick={() => void refreshCatalog()}
+              >
+                刷新脚本
+              </Button>
+            )}
             <ThemeToggle />
           </Space>
         </Flex>
@@ -376,8 +402,9 @@ export function EditorPage({ config, initWarning }: Props) {
         <Alert type="warning" showIcon banner message={initWarning} />
       ) : null}
 
-      <div
-        className="editor-body editor-body-resizable"
+      {mode === 'flow' ? (
+        <div
+          className="editor-body editor-body-resizable"
         style={
           {
             ['--wf-left-w']: `${leftWidth}px`,
@@ -389,13 +416,9 @@ export function EditorPage({ config, initWarning }: Props) {
           <LeftSidebar
             ready={readyNodes}
             problems={problemNodes}
-            types={types}
             environments={environments}
             onRefresh={() => void refreshCatalog()}
             refreshing={refreshing}
-            onTypesChanged={async () => {
-              await refreshCatalog();
-            }}
             onEnvironmentsChanged={async (next) => {
               setEnvironments(next);
             }}
@@ -407,7 +430,6 @@ export function EditorPage({ config, initWarning }: Props) {
             canvasRef={canvasRef}
             document={loadedDocument}
             specByTypeId={specByTypeId}
-            typesMap={typesMap}
             onDocumentChange={onDocumentChange}
             onSelectionChange={onSelectionChange}
             onToast={showToast}
@@ -420,14 +442,25 @@ export function EditorPage({ config, initWarning }: Props) {
             selectedNode={selectedNode}
             selectedEdge={selectedEdge}
             nodes={flowNodes}
-            typesMap={typesMap}
             environments={environments}
             onEnvBindingChange={onEnvBindingChange}
             onNodeEnvIdsChange={onNodeEnvIdsChange}
-            onStructTypeChange={onStructTypeChange}
+            onParamsChange={onParamsChange}
           />
         </aside>
-      </div>
+        </div>
+      ) : (
+        <main className="app-wall-main">
+          <AppWall
+            ready={readyNodes}
+            problems={problemNodes}
+            environments={environments}
+            onChanged={async () => {
+              await refreshCatalog();
+            }}
+          />
+        </main>
+      )}
     </div>
   );
 }

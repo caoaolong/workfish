@@ -54,7 +54,7 @@ export function App() {
 
       {phase === 'loading' ? (
         <div className="center">
-          <Spin size="large" tip="正在连接本地服务…" />
+          <Spin size="large" description="正在连接本地服务…" />
         </div>
       ) : null}
 

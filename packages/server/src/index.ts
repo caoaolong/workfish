@@ -4,7 +4,7 @@ import { handleRequest } from './http.js';
 import { startWorkspaceWatch } from './watch.js';
 
 const HOST = '127.0.0.1';
-const PORT = 8787;
+const PORT = Number(process.env.WORKFISH_PORT ?? 8787);
 
 const server = createServer((req, res) => {
   void handleRequest(req, res);

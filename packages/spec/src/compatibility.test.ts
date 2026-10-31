@@ -1,86 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import type { FieldSpec, TypeDef } from './schema.js';
 import { isCompatible } from './compatibility.js';
-
-function types(entries: [string, TypeDef][]): Map<string, TypeDef> {
-  return new Map(entries);
-}
 
 describe('isCompatible', () => {
   it('同 primitive 类型相容', () => {
-    expect(isCompatible({ type: 'string' }, { type: 'string' }, new Map())).toBe(true);
-    expect(isCompatible({ type: 'number' }, { type: 'number' }, new Map())).toBe(true);
+    expect(isCompatible({ type: 'string' }, { type: 'string' })).toBe(true);
+    expect(isCompatible({ type: 'number' }, { type: 'number' })).toBe(true);
   });
 
   it('不同 primitive 不相容', () => {
-    expect(isCompatible({ type: 'string' }, { type: 'number' }, new Map())).toBe(false);
+    expect(isCompatible({ type: 'string' }, { type: 'number' })).toBe(false);
   });
 
   it('any 与任意类型相容', () => {
-    expect(isCompatible({ type: 'any' }, { type: 'string' }, new Map())).toBe(true);
-    expect(isCompatible({ type: 'string' }, { type: 'any' }, new Map())).toBe(true);
-  });
-
-  it('相同 ref 名称相容', () => {
-    const a: FieldSpec = { type: 'ref', ref: 'User' };
-    expect(isCompatible(a, { ...a }, new Map())).toBe(true);
-  });
-
-  it('缺失 ref 定义不相容', () => {
-    const a: FieldSpec = { type: 'ref', ref: 'Missing' };
-    expect(isCompatible(a, { type: 'string' }, new Map())).toBe(false);
-  });
-
-  it('ref 展开后与 object 浅层 properties 比较', () => {
-    const userType: TypeDef = {
-      id: 'User',
-      name: 'User',
-      fields: {
-        name: { type: 'string' },
-        age: { type: 'number' },
-      },
-    };
-    const map = types([['User', userType]]);
-    const refField: FieldSpec = { type: 'ref', ref: 'User' };
-    const objOk: FieldSpec = {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        age: { type: 'number' },
-      },
-    };
-    const objBad: FieldSpec = {
-      type: 'object',
-      properties: {
-        name: { type: 'number' },
-      },
-    };
-    expect(isCompatible(refField, objOk, map)).toBe(true);
-    expect(isCompatible(objOk, refField, map)).toBe(true);
-    expect(isCompatible(refField, objBad, map)).toBe(false);
+    expect(isCompatible({ type: 'any' }, { type: 'string' })).toBe(true);
+    expect(isCompatible({ type: 'string' }, { type: 'any' })).toBe(true);
   });
 
   it('object 浅层 properties 逐字段相容', () => {
-    const source: FieldSpec = {
-      type: 'object',
+    const source = {
+      type: 'object' as const,
       properties: {
-        a: { type: 'string' },
-        b: { type: 'number' },
+        a: { type: 'string' as const },
+        b: { type: 'number' as const },
       },
     };
-    const target: FieldSpec = {
-      type: 'object',
+    const target = {
+      type: 'object' as const,
       properties: {
-        a: { type: 'string' },
+        a: { type: 'string' as const },
       },
     };
-    const mismatch: FieldSpec = {
-      type: 'object',
+    const mismatch = {
+      type: 'object' as const,
       properties: {
-        a: { type: 'number' },
+        a: { type: 'number' as const },
       },
     };
-    expect(isCompatible(source, target, new Map())).toBe(true);
-    expect(isCompatible(source, mismatch, new Map())).toBe(false);
+    expect(isCompatible(source, target)).toBe(true);
+    expect(isCompatible(source, mismatch)).toBe(false);
+  });
+
+  it('array 与非 array 不相容', () => {
+    expect(isCompatible({ type: 'array' }, { type: 'object' })).toBe(false);
+    expect(isCompatible({ type: 'array' }, { type: 'array' })).toBe(false);
   });
 });

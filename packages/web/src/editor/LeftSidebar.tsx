@@ -2,24 +2,21 @@ import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button, Flex, Typography } from 'antd';
 import { CaretRightOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { EnvironmentCatalog, TypeDef } from '@workfish/spec';
+import type { EnvironmentCatalog } from '@workfish/spec';
 import type { NodeCatalogItem } from '../types.js';
 import { EnvPanel, type EnvPanelHandle } from './EnvPanel.js';
 import { NodePalette } from './NodePalette.js';
-import { TypePanel, type TypePanelHandle } from './TypePanel.js';
 
 type Props = {
   ready: NodeCatalogItem[];
   problems: NodeCatalogItem[];
-  types: TypeDef[];
   environments: EnvironmentCatalog;
   onRefresh: () => void;
   refreshing: boolean;
-  onTypesChanged: () => Promise<void> | void;
   onEnvironmentsChanged: (next: EnvironmentCatalog) => Promise<void> | void;
 };
 
-type SectionKey = 'nodes' | 'types' | 'envs';
+type SectionKey = 'nodes' | 'envs';
 
 function SidebarSection({
   title,
@@ -67,16 +64,13 @@ function SidebarSection({
 export function LeftSidebar({
   ready,
   problems,
-  types,
   environments,
   onRefresh,
   refreshing,
-  onTypesChanged,
   onEnvironmentsChanged,
 }: Props) {
-  const typePanelRef = useRef<TypePanelHandle>(null);
   const envPanelRef = useRef<EnvPanelHandle>(null);
-  const [openKeys, setOpenKeys] = useState<SectionKey[]>(['nodes', 'types', 'envs']);
+  const [openKeys, setOpenKeys] = useState<SectionKey[]>(['nodes', 'envs']);
 
   const toggle = (key: SectionKey) => {
     setOpenKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -108,21 +102,11 @@ export function LeftSidebar({
         </SidebarSection>
 
         <SidebarSection
-          title={`数据结构（${types.length}）`}
-          open={openKeys.includes('types')}
-          onToggle={() => toggle('types')}
-          actionLabel="新建"
-          onAction={() => typePanelRef.current?.openCreate()}
-        >
-          <TypePanel ref={typePanelRef} types={types} onChanged={onTypesChanged} />
-        </SidebarSection>
-
-        <SidebarSection
           title={`环境（${environments.items.length}）`}
           open={openKeys.includes('envs')}
           onToggle={() => toggle('envs')}
           actionLabel="新建"
-          onAction={() => envPanelRef.current?.openCreateGroup()}
+          onAction={() => envPanelRef.current?.openCreateEnv()}
         >
           <EnvPanel
             ref={envPanelRef}

@@ -130,6 +130,19 @@ html[data-theme='dark'] .wizard-card {
   background: var(--wf-bg);
 }
 
+.app-wall-main {
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--wf-bg);
+  padding: 16px 20px 32px;
+}
+
+.app-wall .ant-card {
+  height: 100%;
+}
+
 .editor-body-resizable {
   display: grid;
   grid-template-columns: var(--wf-left-w, 260px) 5px minmax(0, 1fr) 5px var(--wf-right-w, 300px);

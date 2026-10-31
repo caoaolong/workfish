@@ -1,10 +1,9 @@
 export type FieldSpec = {
-  type: 'string' | 'number' | 'boolean' | 'null' | 'any' | 'array' | 'object' | 'ref';
+  type: 'string' | 'number' | 'boolean' | 'null' | 'any' | 'array' | 'object';
   description?: string;
   optional?: boolean;
   items?: FieldSpec;
   properties?: Record<string, FieldSpec>;
-  ref?: string;
 };
 
 /** 节点声明需要绑定的环境槽位（如 source / target） */
@@ -25,20 +24,8 @@ export type NodeSpec = {
   environments?: EnvRequirement[];
 };
 
-export type TypeDef = {
-  id: string;
-  name: string;
-  fields: Record<string, FieldSpec>;
-};
-
-export type EnvironmentGroup = {
-  id: string;
-  name: string;
-};
-
 export type EnvironmentItem = {
   id: string;
-  groupId: string;
   name: string;
   /** 环境变量键值对（本地明文存储） */
   values: Record<string, string>;
@@ -46,7 +33,6 @@ export type EnvironmentItem = {
 
 export type EnvironmentCatalog = {
   version: 1;
-  groups: EnvironmentGroup[];
   items: EnvironmentItem[];
 };
 

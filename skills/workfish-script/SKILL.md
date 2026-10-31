@@ -22,7 +22,6 @@ description: >-
 
 | 路径 | 用途 |
 |------|------|
-| `types/` | 自定义类型（`TypeDef`），供 `ref` 引用 |
 | `nodes/<id>/` | 单个节点；**目录名必须与 `meta.id` 一致** |
 | `workflows/` | 工作流 JSON（画布保存结果） |
 
@@ -55,16 +54,43 @@ environments: [
 - 可选 `description`
 - **禁止**在 meta 或源码里写死库地址/密码；这些放在环境键值对中
 
+### 脚本公用函数库（`wf`）
+
+工作区 `_wflib/` 由服务端自动生成（node `wf.ts` + python `wf.py`，缺失时自动补齐，请勿手动修改）。脚本按以下方式导入：
+
+```ts
+// node（index.ts）
+import { wf_printf, wf_input } from 'wf';
+```
+
+```python
+# python（main.py）
+from wf import wf_printf, wf_input
+```
+
+- `await wf_printf(text)` / `wf_printf(text)`：向后端发送一条纯文本输出，在应用墙运行面板的「输出」区按序展示（与日志分开）。
+- `await wf_input(prompt, { default?, password?, multiline? })` / `wf_input(prompt, default='', password=False, multiline=False)`：向后端请求一个参数，**阻塞等待**用户在前端弹窗中输入后返回字符串；用户取消运行则抛错。
+- 仅在 Workfish 运行（应用墙点运行）中可用，`import` 本身不执行也可通过校验；不要在 `meta` 里声明这些函数。
+- 机密输入（如密码）用 `password: True`，前端掩码显示；输入值只进本次运行，不写入任何文件。
+
+### 运行时契约
+
+- 服务端按工作区 `runtime` 用子进程执行入口：node 用 `tsx` 加载 `index.ts`/`index.js`，python 用 `importlib` 加载 `main.py`；`run` 可为 async 或同步函数。
+- 调用 `run(inputs)`，`inputs` 为应用墙参数表单按 `inputs` 声明收集的值；所选环境的键值对注入为进程环境变量（node 经 `process.env`、python 经 `os.environ` 读取）。
+- `run` 的返回值必须可 JSON 序列化，作为运行输出展示；`console.log` / `print` 进入日志区。
+- 单次运行 TTL 10 分钟（超时终止），`wf_input` 等待用户输入最长 10 分钟；不要在 `run` 里做长时间阻塞。
+
 ### FieldSpec
 
 `inputs` / `outputs` 的值为 `Record<string, FieldSpec>`。`type` 只能是：
 
-`string` | `number` | `boolean` | `null` | `any` | `array` | `object` | `ref`
+`string` | `number` | `boolean` | `null` | `any` | `array` | `object`
 
 - **array**：可带 `items: FieldSpec`
 - **object**：可带 `properties: Record<string, FieldSpec>`
-- **ref**：必须带 `ref: "<TypeDef.id>"`，且工作区 `types/` 中存在对应类型定义
 - 可选：`description`、`optional`
+
+画布上的脚本节点会按 `inputs` 声明自动生成参数表单（string 文本框、number 数字框、boolean 开关、array/object/any 按 JSON 填写），填写的值随工作流保存在节点 `params.inputs` 中；机密配置走环境变量，不要写进参数。
 
 ### 命名与文案
 
@@ -84,6 +110,5 @@ environments: [
 
 1. 确认 `runtime` → 复制对应 `examples/echo-node.*` 为起点。
 2. 新建 `nodes/<your-id>/`，设置 `meta.id === '<your-id>'`。
-3. 若使用 `ref`，先在 `types/` 添加类型文件。
-4. 若需多环境（如测试/生产同步），声明 `environments` 槽位，并提醒用户在左侧「环境」中建分组与环境后，在检查器完成绑定。
-5. 保存 → 提醒用户刷新画布 → 在面板拖拽节点验证 `ready` 状态。
+3. 若需多环境（如测试/生产同步），声明 `environments` 槽位，并提醒用户在左侧「环境」中新建环境后，在检查器完成绑定。
+4. 保存 → 提醒用户刷新 → 在节点面板确认 `ready`，或到应用墙独立运行验证。

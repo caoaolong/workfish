@@ -1,6 +1,5 @@
-import type { NodeSpec, TypeDef, WorkflowDocument } from '@workfish/spec';
+import type { NodeSpec, WorkflowDocument } from '@workfish/spec';
 import type { Edge, Node, Viewport } from '@xyflow/react';
-import { isBuiltinStructNode, resolveEffectiveSpec } from './builtinNodes.js';
 
 export type WorkfishNodeData = {
   typeId: string;
@@ -31,13 +30,12 @@ export function createEmptyWorkflow(id: string, name: string): WorkflowDocument 
 export function documentToFlow(
   doc: WorkflowDocument,
   specByTypeId: Map<string, NodeSpec>,
-  typesMap: Map<string, TypeDef> = new Map(),
 ): { nodes: Node<WorkfishNodeData>[]; edges: Edge<WorkfishEdgeData>[] } {
   const nodes: Node<WorkfishNodeData>[] = doc.nodes.map((wn) => {
-    const spec = resolveEffectiveSpec(wn.typeId, wn.params, specByTypeId, typesMap);
+    const spec = specByTypeId.get(wn.typeId);
     const savedLabel =
       wn.params && typeof wn.params.displayName === 'string' ? wn.params.displayName : undefined;
-    const missingCatalog = isBuiltinStructNode(wn.typeId) ? false : !spec;
+    const missingCatalog = !spec;
     return {
       id: wn.id,
       type: WORKFISH_NODE_TYPE,
@@ -101,6 +99,24 @@ export function flowToDocument(
       ? { viewport: { x: viewport.x, y: viewport.y, zoom: viewport.zoom } }
       : {}),
   };
+}
+
+/** 去掉指向已不存在端口的连线 */
+export function filterEdgesForNodeSpecs(
+  edges: Edge<WorkfishEdgeData>[],
+  nodes: Node<WorkfishNodeData>[],
+): Edge<WorkfishEdgeData>[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return edges.filter((e) => {
+    const source = byId.get(e.source);
+    const target = byId.get(e.target);
+    if (!source?.data.spec || !target?.data.spec) {
+      return false;
+    }
+    const sourcePort = e.sourceHandle ?? e.data?.sourcePort ?? '';
+    const targetPort = e.targetHandle ?? e.data?.targetPort ?? '';
+    return Boolean(source.data.spec.outputs[sourcePort] && target.data.spec.inputs[targetPort]);
+  });
 }
 
 export function newNodeId(): string {

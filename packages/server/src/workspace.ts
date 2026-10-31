@@ -3,6 +3,7 @@ import path from 'node:path';
 import { extractMetaFromTs, extractMetaFromPy } from '@workfish/spec';
 import type { WorkfishRuntime } from './config.js';
 import { ensureEnvironmentsDir } from './environments-service.js';
+import { ensureWfLib } from './wf-lib.js';
 
 const EXAMPLE_NODE_TS = `export const meta = {
   id: 'example-echo',
@@ -46,10 +47,10 @@ function writeIfMissing(filePath: string, content: string): void {
 }
 
 export function ensureWorkspaceSkeleton(workspacePath: string, runtime: WorkfishRuntime): void {
-  mkdirSync(path.join(workspacePath, 'types'), { recursive: true });
   mkdirSync(path.join(workspacePath, 'nodes'), { recursive: true });
   mkdirSync(path.join(workspacePath, 'workflows'), { recursive: true });
   ensureEnvironmentsDir(workspacePath);
+  ensureWfLib(workspacePath);
 
   const exampleDir = path.join(workspacePath, 'nodes', 'example-echo');
   mkdirSync(exampleDir, { recursive: true });

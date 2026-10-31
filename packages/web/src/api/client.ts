@@ -5,8 +5,8 @@ import type {
   InitRequest,
   InitResponse,
   NodeCatalogItem,
+  NodeSpec,
   RuntimeProbeResult,
-  TypeDef,
   WorkfishConfig,
   WorkfishRuntime,
   WorkflowDocument,
@@ -97,19 +97,82 @@ export function postNodesRescan(): Promise<NodeCatalogItem[]> {
   return request<NodeCatalogItem[]>('/api/nodes/rescan', { method: 'POST' });
 }
 
-export function getTypes(): Promise<TypeDef[]> {
-  return request<TypeDef[]>('/api/types');
+export function deleteNode(id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/nodes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
-export function putType(id: string, body: TypeDef): Promise<TypeDef> {
-  return request<TypeDef>(`/api/types/${encodeURIComponent(id)}`, {
+export function putNodeMeta(id: string, meta: NodeSpec): Promise<NodeCatalogItem> {
+  return request<NodeCatalogItem>(`/api/nodes/${encodeURIComponent(id)}/meta`, {
     method: 'PUT',
+    body: JSON.stringify(meta),
+  });
+}
+
+export type NodeRunRequest = {
+  inputs?: Record<string, unknown>;
+  envId?: string;
+};
+
+export type NodeRunResult = {
+  outputs: unknown;
+  logs: string;
+  durationMs: number;
+};
+
+export function runNode(id: string, body: NodeRunRequest): Promise<NodeRunResult> {
+  return request<NodeRunResult>(`/api/nodes/${encodeURIComponent(id)}/run`, {
+    method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export function deleteType(id: string): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(`/api/types/${encodeURIComponent(id)}`, {
+export type RunSessionInfo = {
+  sessionId: string;
+};
+
+export type InputRequestOption = {
+  default: string;
+  password: boolean;
+  multiline: boolean;
+};
+
+export type RunEvent =
+  | { seq: number; type: 'log'; text: string }
+  | { seq: number; type: 'printf'; text: string }
+  | { seq: number; type: 'input_request'; id: string; prompt: string; options: InputRequestOption }
+  | {
+      seq: number;
+      type: 'done';
+      ok: boolean;
+      outputs?: unknown;
+      error?: string;
+      durationMs: number;
+    };
+
+export function createRunSession(
+  nodeId: string,
+  body: NodeRunRequest,
+): Promise<RunSessionInfo> {
+  return request<RunSessionInfo>('/api/runs', {
+    method: 'POST',
+    body: JSON.stringify({ nodeId, ...body }),
+  });
+}
+
+export function answerRunInput(
+  sessionId: string,
+  body: { requestId: string; value?: string; cancelled?: boolean },
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(sessionId)}/input`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function killRunSession(sessionId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/runs/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
   });
 }

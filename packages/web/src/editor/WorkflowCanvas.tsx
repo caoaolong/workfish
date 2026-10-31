@@ -1,4 +1,4 @@
-import { isCompatible, type NodeSpec, type TypeDef } from '@workfish/spec';
+import { isCompatible, type NodeSpec } from '@workfish/spec';
 import {
   Background,
   Controls,
@@ -18,19 +18,12 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useImperativeHandle, useMemo, forwardRef } from 'react';
 import { useTheme } from '../theme.js';
-import {
-  BUILTIN_STRUCT_BASE_SPEC,
-  STRUCT_TYPE_REF_PARAM,
-  buildStructNodeSpec,
-  filterEdgesForNodeSpecs,
-  isBuiltinStructNode,
-  resolveEffectiveSpec,
-} from './builtinNodes.js';
 import { WorkfishNode } from './WorkfishNode.js';
 import { paletteDragMime } from './NodePalette.js';
 import {
   WORKFISH_NODE_TYPE,
   documentToFlow,
+  filterEdgesForNodeSpecs,
   newEdgeId,
   newNodeId,
   type WorkfishEdgeData,
@@ -46,13 +39,11 @@ export type WorkflowCanvasRef = {
     nodeId: string,
     updater: (data: WorkfishNodeData) => WorkfishNodeData,
   ) => void;
-  setStructTypeRef: (nodeId: string, typeRef: string | undefined) => void;
 };
 
 type InnerProps = {
   document: WorkflowDocument;
   specByTypeId: Map<string, NodeSpec>;
-  typesMap: Map<string, TypeDef>;
   onDocumentChange: (nodes: Node<WorkfishNodeData>[], edges: Edge<WorkfishEdgeData>[]) => void;
   onSelectionChange: (params: OnSelectionChangeParams) => void;
   onToast: (message: string) => void;
@@ -63,7 +54,6 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
   {
     document,
     specByTypeId,
-    typesMap,
     onDocumentChange,
     onSelectionChange,
     onToast,
@@ -72,7 +62,7 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
   ref,
 ) {
   const initial = useMemo(
-    () => documentToFlow(document, specByTypeId, typesMap),
+    () => documentToFlow(document, specByTypeId),
     // resetKey 变化时强制从文档重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [resetKey],
@@ -100,57 +90,27 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
           ),
         );
       },
-      setStructTypeRef: (nodeId, typeRef) => {
-        setNodes((nds) => {
-          const nextNodes = nds.map((n) => {
-            if (n.id !== nodeId || !isBuiltinStructNode(n.data.typeId)) {
-              return n;
-            }
-            const prevParams = { ...(n.data.params ?? {}) };
-            if (typeRef) {
-              prevParams[STRUCT_TYPE_REF_PARAM] = typeRef;
-            } else {
-              delete prevParams[STRUCT_TYPE_REF_PARAM];
-            }
-            const spec = buildStructNodeSpec(typeRef, typesMap);
-            const customLabel =
-              typeof prevParams.displayName === 'string' ? prevParams.displayName : undefined;
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                params: Object.keys(prevParams).length > 0 ? prevParams : undefined,
-                spec,
-                missingCatalog: false,
-                label: customLabel || spec.name,
-              },
-            };
-          });
-          setEdges((eds) => filterEdgesForNodeSpecs(eds, nextNodes));
-          return nextNodes;
-        });
-      },
     }),
-    [getViewport, setNodes, setEdges, typesMap],
+    [getViewport, setNodes],
   );
 
   useEffect(() => {
-    const { nodes: n, edges: e } = documentToFlow(document, specByTypeId, typesMap);
+    const { nodes: n, edges: e } = documentToFlow(document, specByTypeId);
     setNodes(n);
     setEdges(e);
-  }, [resetKey, document, setNodes, setEdges, specByTypeId, typesMap]);
+  }, [resetKey, document, setNodes, setEdges, specByTypeId]);
 
   useEffect(() => {
     setNodes((nds) => {
       const nextNodes = nds.map((node) => {
-        const { typeId, params } = node.data;
-        const spec = resolveEffectiveSpec(typeId, params, specByTypeId, typesMap);
-        const missingCatalog = isBuiltinStructNode(typeId) ? false : !spec;
+        const { typeId } = node.data;
+        const spec = specByTypeId.get(typeId);
+        const missingCatalog = !spec;
         return {
           ...node,
           data: {
             ...node.data,
-            // 保留画布上的显示名（含用户重命名），只同步 catalog / 动态规格
+            // 保留画布上的显示名（含用户重命名），只同步 catalog 规格
             spec,
             missingCatalog,
           },
@@ -159,7 +119,7 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
       setEdges((eds) => filterEdgesForNodeSpecs(eds, nextNodes));
       return nextNodes;
     });
-  }, [specByTypeId, typesMap, setNodes, setEdges]);
+  }, [specByTypeId, setNodes, setEdges]);
 
   useEffect(() => {
     onDocumentChange(nodes, edges);
@@ -192,9 +152,9 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
       if (duplicateInput) {
         return false;
       }
-      return isCompatible(outField, inField, typesMap);
+      return isCompatible(outField, inField);
     },
-    [nodes, edges, typesMap],
+    [nodes, edges],
   );
 
   const onConnect = useCallback(
@@ -242,13 +202,11 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
         return;
       }
       const baseSpec = specByTypeId.get(typeId);
-      if (!baseSpec && !isBuiltinStructNode(typeId)) {
+      if (!baseSpec) {
         onToast('无法添加：节点不在可用目录中');
         return;
       }
-      const spec = isBuiltinStructNode(typeId)
-        ? buildStructNodeSpec(undefined, typesMap)
-        : (baseSpec ?? BUILTIN_STRUCT_BASE_SPEC);
+      const spec = baseSpec;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const node: Node<WorkfishNodeData> = {
         id: newNodeId(),
@@ -256,14 +214,14 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
         position,
         data: {
           typeId,
-          label: isBuiltinStructNode(typeId) ? BUILTIN_STRUCT_BASE_SPEC.name : spec.name,
+          label: spec.name,
           spec,
           missingCatalog: false,
         },
       };
       setNodes((nds) => nds.concat(node));
     },
-    [onToast, screenToFlowPosition, setNodes, specByTypeId, typesMap],
+    [onToast, screenToFlowPosition, setNodes, specByTypeId],
   );
 
   return (
@@ -280,7 +238,6 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
         fitView
         defaultViewport={document.viewport}
         colorMode={mode}
-        proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} color={isDark ? '#333' : '#c8c8c8'} />
         <Controls className="wf-flow-controls" />

@@ -1,12 +1,10 @@
 import type {
   Diagnostic,
   EnvironmentCatalog,
-  EnvironmentGroup,
   EnvironmentItem,
   EnvRequirement,
   FieldSpec,
   NodeSpec,
-  TypeDef,
   WorkflowDocument,
   WorkflowEdge,
   WorkflowNode,
@@ -26,7 +24,6 @@ const FIELD_TYPES: readonly FieldSpec['type'][] = [
   'any',
   'array',
   'object',
-  'ref',
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,19 +107,6 @@ function validateFieldSpecInternal(
     } else {
       field.optional = input.optional;
     }
-  }
-
-  if (type === 'ref') {
-    const ref = input.ref;
-    if (ref === undefined || ref === '') {
-      pushError(errors, `${path}.ref`, "type 为 'ref' 时必须提供非空 ref");
-    } else if (typeof ref !== 'string') {
-      pushError(errors, `${path}.ref`, 'ref 必须是字符串');
-    } else {
-      field.ref = ref;
-    }
-  } else if (input.ref !== undefined && typeof input.ref === 'string') {
-    field.ref = input.ref;
   }
 
   if (type === 'array' && input.items !== undefined) {
@@ -252,23 +236,6 @@ export function validateNodeSpec(input: unknown): ValidateResult<NodeSpec> {
     spec.environments = environments;
   }
   return { ok: true, value: spec };
-}
-
-export function validateTypeDef(input: unknown): ValidateResult<TypeDef> {
-  const errors: Diagnostic[] = [];
-  if (!isRecord(input)) {
-    return { ok: false, errors: [{ path: '', message: 'TypeDef 必须是对象' }] };
-  }
-
-  const id = requireString(input, 'id', 'id', errors);
-  const name = requireString(input, 'name', 'name', errors);
-  const fields = validateFieldSpecMap(input.fields, 'fields', errors);
-
-  if (errors.length > 0 || !id || !name || !fields) {
-    return { ok: false, errors };
-  }
-
-  return { ok: true, value: { id, name, fields } };
 }
 
 function validatePortRef(
@@ -417,35 +384,10 @@ export function validateEnvironmentCatalog(input: unknown): ValidateResult<Envir
   if (input.version !== 1) {
     pushError(errors, 'version', 'version 必须为 1');
   }
-  if (!Array.isArray(input.groups)) {
-    pushError(errors, 'groups', 'groups 必须是数组');
-  }
   if (!Array.isArray(input.items)) {
     pushError(errors, 'items', 'items 必须是数组');
   }
-
-  const groups: EnvironmentGroup[] = [];
-  const groupIds = new Set<string>();
-  if (Array.isArray(input.groups)) {
-    input.groups.forEach((raw, index) => {
-      const path = `groups[${index}]`;
-      if (!isRecord(raw)) {
-        pushError(errors, path, '分组必须是对象');
-        return;
-      }
-      const id = requireString(raw, 'id', `${path}.id`, errors);
-      const name = requireString(raw, 'name', `${path}.name`, errors);
-      if (id && groupIds.has(id)) {
-        pushError(errors, `${path}.id`, `重复的分组 id: ${id}`);
-      }
-      if (id) {
-        groupIds.add(id);
-      }
-      if (id && name) {
-        groups.push({ id, name });
-      }
-    });
-  }
+  // 兼容旧文件：遗留的 groups 字段直接忽略，不再建模分组层级。
 
   const items: EnvironmentItem[] = [];
   const itemIds = new Set<string>();
@@ -457,16 +399,12 @@ export function validateEnvironmentCatalog(input: unknown): ValidateResult<Envir
         return;
       }
       const id = requireString(raw, 'id', `${path}.id`, errors);
-      const groupId = requireString(raw, 'groupId', `${path}.groupId`, errors);
       const name = requireString(raw, 'name', `${path}.name`, errors);
       if (id && itemIds.has(id)) {
         pushError(errors, `${path}.id`, `重复的环境 id: ${id}`);
       }
       if (id) {
         itemIds.add(id);
-      }
-      if (groupId && groupIds.size > 0 && !groupIds.has(groupId)) {
-        pushError(errors, `${path}.groupId`, `未知分组: ${groupId}`);
       }
       if (!isRecord(raw.values)) {
         pushError(errors, `${path}.values`, 'values 必须是对象');
@@ -480,8 +418,9 @@ export function validateEnvironmentCatalog(input: unknown): ValidateResult<Envir
           values[k] = v;
         }
       }
-      if (id && groupId && name) {
-        items.push({ id, groupId, name, values });
+      if (id && name) {
+        // 兼容旧文件：遗留的 groupId 直接丢弃。
+        items.push({ id, name, values });
       }
     });
   }
@@ -489,5 +428,5 @@ export function validateEnvironmentCatalog(input: unknown): ValidateResult<Envir
   if (errors.length > 0 || input.version !== 1) {
     return { ok: false, errors };
   }
-  return { ok: true, value: { version: 1, groups, items } };
+  return { ok: true, value: { version: 1, items } };
 }

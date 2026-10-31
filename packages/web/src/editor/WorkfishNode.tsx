@@ -11,10 +11,7 @@ import {
 } from '@xyflow/react';
 import type { WorkfishNodeData } from './workflowMapper.js';
 
-function fieldTypeLabel(type: string, ref?: string): string {
-  if (type === 'ref' && ref) {
-    return ref;
-  }
+function fieldTypeLabel(type: string): string {
   return type;
 }
 
@@ -147,7 +144,7 @@ export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNode
                   className="wf-handle wf-handle-in"
                 />
                 <span className="wf-port-name">{name}</span>
-                <span className="wf-port-type">{fieldTypeLabel(field.type, field.ref)}</span>
+                <span className="wf-port-type">{fieldTypeLabel(field.type)}</span>
                 <Handle
                   type="source"
                   position={Position.Right}
@@ -171,7 +168,7 @@ export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNode
                   className="wf-handle wf-handle-in"
                 />
                 <span className="wf-port-name">{name}</span>
-                <span className="wf-port-type">{fieldTypeLabel(field.type, field.ref)}</span>
+                <span className="wf-port-type">{fieldTypeLabel(field.type)}</span>
               </div>
             ))}
           </div>
@@ -182,7 +179,7 @@ export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNode
             <div className="wf-node-section-label">输出</div>
             {(unpairedOutputs.length > 0 ? unpairedOutputs : outputs).map(([name, field]) => (
               <div key={name} className="wf-port-row wf-port-row-out">
-                <span className="wf-port-type">{fieldTypeLabel(field.type, field.ref)}</span>
+                <span className="wf-port-type">{fieldTypeLabel(field.type)}</span>
                 <span className="wf-port-name">{name}</span>
                 <Handle
                   type="source"
@@ -203,7 +200,7 @@ export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNode
         onCancel={() => setRenameOpen(false)}
         okText="确定"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Input
           value={renameValue}

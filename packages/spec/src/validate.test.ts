@@ -49,25 +49,18 @@ describe('validateNodeSpec', () => {
     }
   });
 
-  it('rejects FieldSpec type ref without ref', () => {
+  it('rejects 未知 FieldSpec type（ref 已移除）', () => {
     const input = {
-      id: 'missing-ref',
-      name: 'Missing Ref',
+      id: 'with-ref',
+      name: 'With Ref',
       version: '1.0.0',
       inputs: {
-        payload: { type: 'ref' },
+        payload: { type: 'ref', ref: 'Something' },
       },
       outputs: {},
     };
     const result = validateNodeSpec(input);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(
-        result.errors.some(
-          (e) => e.path.includes('ref') || e.message.toLowerCase().includes('ref'),
-        ),
-      ).toBe(true);
-    }
   });
 });
 
