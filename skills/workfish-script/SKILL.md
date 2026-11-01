@@ -32,7 +32,7 @@ description: >-
 | `node` | `nodes/<id>/index.ts` | `export const meta = { ... }`；`export async function run(inputs) { ... }` |
 | `python` | `nodes/<id>/main.py` | 模块级 `meta = { ... }`；`async def run(inputs): ...` |
 
-完整 echo 示例见本 skill 目录：`examples/echo-node.ts`、`examples/echo-node.py`（与 `@workfish/server` 初始化时写入的 `example-echo` 一致）。
+完整示例见本 skill 目录：`examples/word-fix-node.ts`、`examples/word-fix-node.py`（与 `@workfish/server` 初始化时写入的 `word-fix` 一致）。
 
 ## 编写 meta（NodeSpec）
 
@@ -108,7 +108,7 @@ from wf import wf_printf, wf_input
 
 ## 工作流建议
 
-1. 确认 `runtime` → 复制对应 `examples/echo-node.*` 为起点。
+1. 确认 `runtime` → 复制对应 `examples/word-fix-node.*` 为起点（或自建空节点）。
 2. 新建 `nodes/<your-id>/`，设置 `meta.id === '<your-id>'`。
 3. 若需多环境（如测试/生产同步），声明 `environments` 槽位，并提醒用户在左侧「环境」中新建环境后，在检查器完成绑定。
 4. 保存 → 提醒用户刷新 → 在节点面板确认 `ready`，或到应用墙独立运行验证。

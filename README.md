@@ -33,7 +33,7 @@ pnpm test   # @workfish/spec 单元测试
   - `nodes/<id>/` — 节点脚本（Node：`index.ts`；Python：`main.py`）
   - `workflows/` — 工作流文档
 
-首次初始化会创建示例节点 `nodes/example-echo/`。
+首次初始化会创建示例节点 `nodes/word-fix/`（WordFix：清理题库 JSON 中的音标字段）。
 
 ## 用 Agent Skill 写节点脚本
 
@@ -46,7 +46,7 @@ pnpm test   # @workfish/spec 单元测试
 3. 仅使用 spec 允许的 **FieldSpec** 类型；`ref` 需先在 `types/` 定义  
 4. 保存后提醒你在画布 **刷新** 节点列表  
 
-示例模板与 server 生成的 echo 节点一致：`skills/workfish-script/examples/echo-node.ts`、`echo-node.py`。
+示例模板与 server 生成的 WordFix 节点一致：`skills/workfish-script/examples/word-fix-node.ts`、`word-fix-node.py`。
 
 ## 包结构
 

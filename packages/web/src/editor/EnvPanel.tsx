@@ -1,5 +1,4 @@
 import { forwardRef, useImperativeHandle, useState } from 'react';
-import type { ReactNode } from 'react';
 import {
   Button,
   Empty,
@@ -8,11 +7,9 @@ import {
   Input,
   Modal,
   Space,
-  Tree,
   Typography,
   App as AntdApp,
 } from 'antd';
-import type { DataNode } from 'antd/es/tree';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import type { EnvironmentCatalog, EnvironmentItem } from '@workfish/spec';
 import { formatApiError, putEnvironments } from '../api/client.js';
@@ -30,32 +27,6 @@ type KvRow = { key: string; name: string; value: string };
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}`;
-}
-
-function TreeTitle({
-  label,
-  hint,
-  actions,
-}: {
-  label: ReactNode;
-  hint?: string;
-  actions?: ReactNode;
-}) {
-  return (
-    <div className="sidebar-tree-title">
-      <div className="sidebar-tree-title-main">
-        <Typography.Text ellipsis style={{ maxWidth: '100%' }}>
-          {label}
-        </Typography.Text>
-        {hint ? (
-          <Typography.Text type="secondary" className="sidebar-tree-hint">
-            {hint}
-          </Typography.Text>
-        ) : null}
-      </div>
-      {actions ? <Space size={0} className="sidebar-tree-actions">{actions}</Space> : null}
-    </div>
-  );
 }
 
 export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
@@ -153,53 +124,46 @@ export const EnvPanel = forwardRef<EnvPanelHandle, Props>(function EnvPanel(
     });
   };
 
-  const treeData: DataNode[] = catalog.items.map((item) => ({
-    key: `env:${item.id}`,
-    isLeaf: true,
-    selectable: false,
-    title: (
-      <TreeTitle
-        label={item.name}
-        hint={`${Object.keys(item.values).length} 个变量`}
-        actions={
-          <>
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                openEditEnv(item);
-              }}
-            />
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteEnv(item);
-              }}
-            />
-          </>
-        }
-      />
-    ),
-  }));
-
   return (
-    <div className="sidebar-panel-body">
+    <div className="sidebar-panel-body env-palette">
       {catalog.items.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无环境" />
       ) : (
-        <Tree
-          key={catalog.items.map((i) => i.id).join('|')}
-          className="sidebar-tree"
-          blockNode
-          selectable={false}
-          treeData={treeData}
-        />
+        <div className="palette-grid">
+          {catalog.items.map((item) => (
+            <div key={item.id} className="palette-item env-palette-item" title={item.id}>
+              <div className="env-palette-item-main">
+                <Typography.Text strong ellipsis className="palette-item-name">
+                  {item.name}
+                </Typography.Text>
+                <Typography.Text type="secondary" ellipsis className="palette-item-id">
+                  {Object.keys(item.values).length} 个变量
+                </Typography.Text>
+              </div>
+              <Space size={0} className="env-palette-actions">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEditEnv(item);
+                  }}
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteEnv(item);
+                  }}
+                />
+              </Space>
+            </div>
+          ))}
+        </div>
       )}
 
       <Modal

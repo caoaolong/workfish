@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Button, Input, Modal, Space, Tag, Tooltip, Typography, App as AntdApp } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import {
   Handle,
   NodeToolbar,
@@ -9,7 +9,21 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
+import { useEditorNodeActions } from './EditorNodeActionsContext.js';
+import { readInputValues } from './ParamFields.js';
 import type { WorkfishNodeData } from './workflowMapper.js';
+
+function readNodeEnvId(params: Record<string, unknown> | undefined): string | undefined {
+  const raw = params?.envId;
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.trim();
+  }
+  const ids = params?.envIds;
+  if (Array.isArray(ids) && typeof ids[0] === 'string' && ids[0].trim()) {
+    return ids[0].trim();
+  }
+  return undefined;
+}
 
 function fieldTypeLabel(type: string): string {
   return type;
@@ -18,8 +32,19 @@ function fieldTypeLabel(type: string): string {
 export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNodeData>>) {
   const { setNodes, deleteElements } = useReactFlow();
   const { modal } = AntdApp.useApp();
+  const nodeActions = useEditorNodeActions();
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(data.label);
+  const canRun = Boolean(nodeActions && data.spec && !data.missingCatalog);
+  const runStatus = nodeActions?.runStatusByNodeId[id] ?? 'idle';
+  const runClass =
+    runStatus === 'running'
+      ? ' wf-node-run-running'
+      : runStatus === 'ok'
+        ? ' wf-node-run-ok'
+        : runStatus === 'error'
+          ? ' wf-node-run-error'
+          : ' wf-node-run-idle';
   const inputs = data.spec ? Object.entries(data.spec.inputs) : [];
   const outputs = data.spec ? Object.entries(data.spec.outputs) : [];
   const inputNames = new Set(inputs.map(([name]) => name));
@@ -73,16 +98,66 @@ export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNode
     });
   }, [data.label, deleteElements, id, modal]);
 
+  const handleRun = useCallback(() => {
+    if (!nodeActions || !data.spec) {
+      return;
+    }
+    const inputs = readInputValues(data.params);
+    nodeActions.requestRun({
+      instanceId: id,
+      id: data.typeId,
+      name: data.label,
+      spec: data.spec,
+      envId: readNodeEnvId(data.params),
+      ...(Object.keys(inputs).length > 0 ? { inputs } : {}),
+    });
+  }, [data.label, data.params, data.spec, data.typeId, id, nodeActions]);
+
+  const handleStop = useCallback(() => {
+    nodeActions?.stopRun(id);
+  }, [id, nodeActions]);
+
+  const isRunning = runStatus === 'running';
+
   return (
     <>
       <NodeToolbar
-        isVisible={selected}
+        isVisible={selected || isRunning}
         position={Position.Top}
         offset={8}
         className="wf-node-toolbar"
         align="center"
       >
         <Space size={4} className="wf-node-toolbar-inner nodrag nopan">
+          {isRunning ? (
+            <Tooltip title="中断">
+              <Button
+                type="text"
+                size="small"
+                danger
+                className="nodrag nopan"
+                icon={<StopOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStop();
+                }}
+              />
+            </Tooltip>
+          ) : (
+            <Tooltip title={canRun ? '运行' : '无法运行（节点类型不可用）'}>
+              <Button
+                type="text"
+                size="small"
+                className="nodrag nopan"
+                icon={<PlayCircleOutlined />}
+                disabled={!canRun}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRun();
+                }}
+              />
+            </Tooltip>
+          )}
           <Tooltip title="重命名">
             <Button
               type="text"
@@ -112,7 +187,7 @@ export function WorkfishNode({ id, data, selected }: NodeProps<Node<WorkfishNode
       </NodeToolbar>
 
       <div
-        className={`wf-node${selected ? ' selected' : ''}${data.missingCatalog ? ' wf-node-warn' : ''}`}
+        className={`wf-node${runClass}${selected ? ' selected' : ''}${data.missingCatalog ? ' wf-node-warn' : ''}`}
       >
         <div className="wf-node-header">
           <div className="wf-node-title-block">

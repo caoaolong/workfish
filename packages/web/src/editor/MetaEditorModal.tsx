@@ -41,8 +41,20 @@ function newRowKey(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6)}`;
 }
 
-function toFieldRows(fields: Record<string, FieldSpec>): FieldRow[] {
-  return Object.entries(fields).map(([name, field], i) => ({
+function emptyFieldRow(prefix: string): FieldRow {
+  return {
+    key: newRowKey(prefix),
+    name: '',
+    type: 'string',
+    optional: false,
+    description: '',
+    itemsType: 'string',
+    propertiesText: '',
+  };
+}
+
+function toFieldRows(fields: Record<string, FieldSpec> | undefined): FieldRow[] {
+  return Object.entries(fields ?? {}).map(([name, field], i) => ({
     key: `${name}-${i}`,
     name,
     type: field.type,
@@ -62,12 +74,20 @@ function toSlotRows(slots: EnvRequirement[] | undefined): SlotRow[] {
   }));
 }
 
-function RowListHeader({ title, onAdd }: { title: string; onAdd: () => void }) {
+function SectionHeader({
+  title,
+  onAdd,
+  addLabel = '添加',
+}: {
+  title: string;
+  onAdd: () => void;
+  addLabel?: string;
+}) {
   return (
-    <Flex justify="space-between" style={{ width: '100%' }}>
-      <span>{title}</span>
-      <Button type="link" size="small" icon={<PlusOutlined />} onClick={onAdd}>
-        添加
+    <Flex align="center" justify="space-between" style={{ marginBottom: 8 }}>
+      <Typography.Text strong>{title}</Typography.Text>
+      <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={onAdd}>
+        {addLabel}
       </Button>
     </Flex>
   );
@@ -83,21 +103,20 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
   const [slotRows, setSlotRows] = useState<SlotRow[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // 仅在打开或切换脚本时灌入，避免编辑过程中被父组件重渲染重置
   useEffect(() => {
-    if (!open) {
+    if (!open || !initial) {
       return;
     }
     setSaving(false);
     setFormError(null);
-    if (initial) {
-      setName(initial.name);
-      setVersion(initial.version);
-      setDescription(initial.description ?? '');
-      setInputRows(toFieldRows(initial.inputs));
-      setOutputRows(toFieldRows(initial.outputs));
-      setSlotRows(toSlotRows(initial.environments));
-    }
-  }, [open, initial]);
+    setName(initial.name);
+    setVersion(initial.version);
+    setDescription(initial.description ?? '');
+    setInputRows(toFieldRows(initial.inputs));
+    setOutputRows(toFieldRows(initial.outputs));
+    setSlotRows(toSlotRows(initial.environments));
+  }, [open, initial?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchRow = (
     setter: React.Dispatch<React.SetStateAction<FieldRow[]>>,
@@ -113,6 +132,10 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
     for (const row of rows) {
       const fieldName = row.name.trim();
       if (!fieldName) {
+        if (row.description.trim() || row.type !== 'string') {
+          setFormError(`${label}中存在未填写字段名的行`);
+          return null;
+        }
         continue;
       }
       if (seen.has(fieldName)) {
@@ -219,16 +242,19 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
   const renderFieldRows = (
     rows: FieldRow[],
     setter: React.Dispatch<React.SetStateAction<FieldRow[]>>,
+    emptyText: string,
   ) => (
     <Space direction="vertical" style={{ width: '100%' }} size="small">
+      {rows.length === 0 ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {emptyText}
+        </Typography.Text>
+      ) : null}
       {rows.map((row) => (
-        <div
-          key={row.key}
-          style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 8 }}
-        >
+        <div key={row.key} className="meta-field-row">
           <Flex gap={8} style={{ marginBottom: 8 }}>
             <Input
-              placeholder="字段名（camelCase）"
+              placeholder="字段名，如 DB_HOST"
               value={row.name}
               onChange={(e) => patchRow(setter, row.key, { name: e.target.value })}
               style={{ flex: 1 }}
@@ -254,7 +280,7 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
               onChange={(v) => patchRow(setter, row.key, { optional: v })}
             />
             <Input
-              placeholder="说明（可选）"
+              placeholder="中文说明（可选）"
               value={row.description}
               onChange={(e) => patchRow(setter, row.key, { description: e.target.value })}
               style={{ flex: 1 }}
@@ -294,10 +320,11 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
       confirmLoading={saving}
       okText="保存"
       cancelText="取消"
-      width={640}
+      width={720}
       destroyOnHidden
+      styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
     >
-      <Form layout="vertical">
+      <Form layout="vertical" requiredMark>
         <Flex gap={8}>
           <Form.Item label="脚本名称" required style={{ flex: 1 }}>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如 数据同步" />
@@ -317,70 +344,46 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
             placeholder="脚本用途说明（可选）"
           />
         </Form.Item>
-        <Form.Item
-          label={
-            <RowListHeader
-              title="输入"
-              onAdd={() =>
-                setInputRows((prev) => [
-                  ...prev,
-                  {
-                    key: newRowKey('in'),
-                    name: '',
-                    type: 'string',
-                    optional: false,
-                    description: '',
-                    itemsType: 'string',
-                    propertiesText: '',
-                  },
-                ])
-              }
-            />
-          }
-        >
-          {renderFieldRows(inputRows, setInputRows)}
-        </Form.Item>
-        <Form.Item
-          label={
-            <RowListHeader
-              title="输出"
-              onAdd={() =>
-                setOutputRows((prev) => [
-                  ...prev,
-                  {
-                    key: newRowKey('out'),
-                    name: '',
-                    type: 'string',
-                    optional: false,
-                    description: '',
-                    itemsType: 'string',
-                    propertiesText: '',
-                  },
-                ])
-              }
-            />
-          }
-        >
-          {renderFieldRows(outputRows, setOutputRows)}
-        </Form.Item>
-        <Form.Item
-          label={
-            <RowListHeader
-              title="环境槽位"
-              onAdd={() =>
-                setSlotRows((prev) => [
-                  ...prev,
-                  { key: newRowKey('slot'), slotKey: '', name: '', description: '' },
-                ])
-              }
-            />
-          }
-        >
+
+        <div className="meta-io-section">
+          <SectionHeader
+            title="输入"
+            addLabel="添加输入"
+            onAdd={() => setInputRows((prev) => [...prev, emptyFieldRow('in')])}
+          />
+          {renderFieldRows(inputRows, setInputRows, '暂无输入')}
+        </div>
+
+        <div className="meta-io-section">
+          <SectionHeader
+            title="输出"
+            addLabel="添加输出"
+            onAdd={() => setOutputRows((prev) => [...prev, emptyFieldRow('out')])}
+          />
+          {renderFieldRows(outputRows, setOutputRows, '暂无输出')}
+        </div>
+
+        <div className="meta-io-section">
+          <SectionHeader
+            title="环境槽位"
+            addLabel="添加槽位"
+            onAdd={() =>
+              setSlotRows((prev) => [
+                ...prev,
+                { key: newRowKey('slot'), slotKey: '', name: '', description: '' },
+              ])
+            }
+          />
           <Space direction="vertical" style={{ width: '100%' }} size="small">
+            {slotRows.length === 0 ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                暂无槽位
+              </Typography.Text>
+            ) : null}
             {slotRows.map((row) => (
               <Flex key={row.key} gap={8}>
                 <Input
-                  placeholder="key（camelCase）"
+                  placeholder="key"
                   value={row.slotKey}
                   onChange={(e) =>
                     setSlotRows((prev) =>
@@ -408,10 +411,8 @@ export function MetaEditorModal({ open, initial, onCancel, onSave }: Props) {
               </Flex>
             ))}
           </Space>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            槽位供工作流中的环境绑定使用；应用墙独立运行时统一注入所选环境。
-          </Typography.Text>
-        </Form.Item>
+        </div>
+
         {formError ? <Typography.Text type="danger">{formError}</Typography.Text> : null}
       </Form>
     </Modal>

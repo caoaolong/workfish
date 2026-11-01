@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import type { ServerResponse } from 'node:http';
 import { getEnvironmentCatalog } from './environments-service.js';
 import { getNodes } from './catalog-service.js';
@@ -376,6 +377,11 @@ export async function createRunSession(
     if (item!.runtime === 'node') {
       const require = createRequire(import.meta.url);
       const tsxCli = require.resolve('tsx/cli');
+      // 让脚本能解析 @workfish/server 依赖（如 mysql2）
+      const serverNodeModules = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
+      childEnv.NODE_PATH = childEnv.NODE_PATH
+        ? `${serverNodeModules}${path.delimiter}${childEnv.NODE_PATH}`
+        : serverNodeModules;
       const runnerPath = path.join(workDir, 'node-runner.mjs');
       writeFileSync(runnerPath, NODE_RUNNER, 'utf8');
       exe = process.execPath;

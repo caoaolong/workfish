@@ -19,6 +19,9 @@ export async function getBootstrapState(): Promise<BootstrapResponse> {
     return { initialized: false, defaultWorkspacePath };
   }
 
+  // 已初始化工作区也补齐骨架（迁移示例节点、补 _wflib 等）
+  ensureWorkspaceSkeleton(config.workspacePath, config.runtime);
+
   const runtimeHealth = await probeRuntime(config.runtime, config.runtimePath);
   return {
     initialized: true,

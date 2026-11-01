@@ -1,7 +1,9 @@
+import { useState, type ReactNode } from 'react';
 import {
   Alert,
   Descriptions,
   Empty,
+  Flex,
   Select,
   Space,
   Tag,
@@ -10,11 +12,13 @@ import {
 import {
   isCompatible,
   type EnvironmentCatalog,
+  type EnvironmentItem,
   type FieldSpec,
   type NodeSpec,
 } from '@workfish/spec';
 import type { Edge, Node } from '@xyflow/react';
 import { ParamFields, readInputValues } from './ParamFields.js';
+import { SidebarSection } from './SidebarSection.js';
 import type { WorkfishEdgeData, WorkfishNodeData } from './workflowMapper.js';
 
 function fieldSummary(field: FieldSpec): string {
@@ -24,38 +28,21 @@ function fieldSummary(field: FieldSpec): string {
   return field.type;
 }
 
-function FieldBlock({ title, fields }: { title: string; fields: Record<string, FieldSpec> }) {
+function FieldList({ fields }: { fields: Record<string, FieldSpec> }) {
   const entries = Object.entries(fields);
   if (entries.length === 0) {
-    return (
-      <div>
-        <Typography.Title level={5} style={{ fontSize: 14 }}>
-          {title}
-        </Typography.Title>
-        <Typography.Text type="secondary">无</Typography.Text>
-      </div>
-    );
+    return <Typography.Text type="secondary">无</Typography.Text>;
   }
   return (
-    <div>
-      <Typography.Title level={5} style={{ fontSize: 14 }}>
-        {title}
-      </Typography.Title>
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        {entries.map(([name, field]) => (
-          <div key={name}>
-            <Typography.Text strong>{name}</Typography.Text>{' '}
-            <Typography.Text code>{fieldSummary(field)}</Typography.Text>
-            {field.optional ? <Tag style={{ marginLeft: 6 }}>可选</Tag> : null}
-            {field.description ? (
-              <Typography.Paragraph type="secondary" style={{ margin: '4px 0 0', fontSize: 12 }}>
-                {field.description}
-              </Typography.Paragraph>
-            ) : null}
-          </div>
-        ))}
-      </Space>
-    </div>
+    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      {entries.map(([name, field]) => (
+        <div key={name}>
+          <Typography.Text strong>{name}</Typography.Text>{' '}
+          <Typography.Text code>{fieldSummary(field)}</Typography.Text>
+          {field.optional ? <Tag style={{ marginLeft: 6 }}>可选</Tag> : null}
+        </div>
+      ))}
+    </Space>
   );
 }
 
@@ -64,8 +51,11 @@ type Props = {
   selectedEdge: Edge<WorkfishEdgeData> | null;
   nodes: Node<WorkfishNodeData>[];
   environments: EnvironmentCatalog;
-  onEnvBindingChange: (nodeId: string, key: string, envId: string | undefined) => void;
-  onNodeEnvIdsChange: (nodeId: string, envIds: string[]) => void;
+  onNodeEnvChange: (
+    nodeId: string,
+    envId: string | undefined,
+    nextInputs: Record<string, unknown> | undefined,
+  ) => void;
   onParamsChange: (nodeId: string, values: Record<string, unknown> | undefined) => void;
 };
 
@@ -81,29 +71,126 @@ function resolvePortSpec(
   return kind === 'input' ? spec.inputs[port] : spec.outputs[port];
 }
 
-function readEnvBindings(node: Node<WorkfishNodeData>): Record<string, string> {
-  const raw = node.data.params?.envBindings;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return {};
+function readNodeEnvId(node: Node<WorkfishNodeData>): string | undefined {
+  const raw = node.data.params?.envId;
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.trim();
   }
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof v === 'string' && v.trim()) {
-      out[k] = v;
-    } else if (Array.isArray(v) && typeof v[0] === 'string' && v[0].trim()) {
-      // 兼容曾误存为数组的数据，取首项
-      out[k] = v[0];
-    }
+  // 兼容旧的多选 envIds：取首项
+  const ids = node.data.params?.envIds;
+  if (Array.isArray(ids) && typeof ids[0] === 'string' && ids[0].trim()) {
+    return ids[0].trim();
   }
-  return out;
+  return undefined;
 }
 
-function readNodeEnvIds(node: Node<WorkfishNodeData>): string[] {
-  const raw = node.data.params?.envIds;
-  if (!Array.isArray(raw)) {
+/** 将环境键值转为与 FieldSpec 大致相容的输入值 */
+export function coerceEnvValue(raw: string, field: FieldSpec): unknown {
+  const text = String(raw);
+  switch (field.type) {
+    case 'number': {
+      const n = Number(text);
+      return Number.isFinite(n) ? n : text;
+    }
+    case 'boolean': {
+      const lower = text.trim().toLowerCase();
+      if (lower === 'true' || lower === '1' || lower === 'yes') {
+        return true;
+      }
+      if (lower === 'false' || lower === '0' || lower === 'no') {
+        return false;
+      }
+      return text;
+    }
+    case 'null':
+      return null;
+    case 'array':
+    case 'object':
+    case 'any': {
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return text;
+      }
+    }
+    default:
+      return text;
+  }
+}
+
+/**
+ * 选择环境时：去掉与环境同名的手动输入，使检查器展示 <NAME:VALUE>；
+ * 环境中不存在的键保留手动值。
+ */
+export function applyEnvToInputs(
+  spec: NodeSpec,
+  env: EnvironmentItem | undefined,
+  current: Record<string, unknown>,
+): { values: Record<string, unknown>; matchedKeys: string[] } {
+  const values = { ...current };
+  const matchedKeys: string[] = [];
+  if (!env) {
+    return { values, matchedKeys };
+  }
+  for (const name of Object.keys(spec.inputs)) {
+    if (Object.prototype.hasOwnProperty.call(env.values, name)) {
+      delete values[name];
+      matchedKeys.push(name);
+    }
+  }
+  return { values, matchedKeys };
+}
+
+/** 与环境同名且未手动覆盖（或值仍等于环境）的输入键 */
+export function matchedKeysFromEnv(
+  spec: NodeSpec,
+  env: EnvironmentItem | undefined,
+  values: Record<string, unknown>,
+): string[] {
+  if (!env) {
     return [];
   }
-  return raw.filter((x): x is string => typeof x === 'string' && Boolean(x.trim()));
+  const keys: string[] = [];
+  for (const [name, field] of Object.entries(spec.inputs)) {
+    if (!Object.prototype.hasOwnProperty.call(env.values, name)) {
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(values, name)) {
+      keys.push(name);
+      continue;
+    }
+    const expected = coerceEnvValue(env.values[name]!, field);
+    if (Object.is(values[name], expected) || String(values[name]) === String(env.values[name])) {
+      keys.push(name);
+    }
+  }
+  return keys;
+}
+
+type NodeSectionKey = 'info' | 'env' | 'inputs' | 'outputs';
+type EdgeSectionKey = 'info' | 'types';
+
+function InspectorShell({
+  children,
+  empty,
+}: {
+  children?: ReactNode;
+  empty?: boolean;
+}) {
+  return (
+    <aside className="editor-sidebar editor-sidebar-right">
+      <Flex align="center" justify="space-between" className="sidebar-toolbar">
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          检查器
+        </Typography.Title>
+      </Flex>
+      {empty ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选中节点或连线以查看详情" />
+      ) : (
+        <div className="sidebar-sections">{children}</div>
+      )}
+    </aside>
+  );
 }
 
 export function Inspector({
@@ -111,152 +198,136 @@ export function Inspector({
   selectedEdge,
   nodes,
   environments,
-  onEnvBindingChange,
-  onNodeEnvIdsChange,
+  onNodeEnvChange,
   onParamsChange,
 }: Props) {
-  if (!selectedNode && !selectedEdge) {
-    return (
-      <aside className="editor-sidebar editor-sidebar-right">
-        <Typography.Title level={5} style={{ marginTop: 0 }}>
-          检查器
-        </Typography.Title>
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选中节点或连线以查看详情" />
-      </aside>
+  const [nodeOpenKeys, setNodeOpenKeys] = useState<NodeSectionKey[]>([
+    'info',
+    'env',
+    'inputs',
+    'outputs',
+  ]);
+  const [edgeOpenKeys, setEdgeOpenKeys] = useState<EdgeSectionKey[]>(['info', 'types']);
+
+  const toggleNode = (key: NodeSectionKey) => {
+    setNodeOpenKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
     );
+  };
+
+  const toggleEdge = (key: EdgeSectionKey) => {
+    setEdgeOpenKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  if (!selectedNode && !selectedEdge) {
+    return <InspectorShell empty />;
   }
 
   if (selectedNode) {
     const spec: NodeSpec | undefined = selectedNode.data.spec;
-    const envReqs = spec?.environments ?? [];
-    const bindings = readEnvBindings(selectedNode);
-    const nodeEnvIds = readNodeEnvIds(selectedNode);
+    const envId = readNodeEnvId(selectedNode);
     const inputValues = readInputValues(selectedNode.data.params);
+    const selectedEnv = envId ? environments.items.find((i) => i.id === envId) : undefined;
+    const envMissing = Boolean(envId && !selectedEnv);
     const envOptions = environments.items.map((i) => ({ value: i.id, label: i.name }));
+    const inputCount = spec ? Object.keys(spec.inputs).length : 0;
+    const outputCount = spec ? Object.keys(spec.outputs).length : 0;
 
     return (
-      <aside className="editor-sidebar editor-sidebar-right">
-        <Typography.Title level={5} style={{ marginTop: 0 }}>
-          节点
-        </Typography.Title>
-        <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
-          <Descriptions.Item label="名称">{selectedNode.data.label}</Descriptions.Item>
-          <Descriptions.Item label="类型 ID">
-            <Typography.Text code>{selectedNode.data.typeId}</Typography.Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="实例 ID">
-            <Typography.Text code>{selectedNode.id}</Typography.Text>
-          </Descriptions.Item>
-        </Descriptions>
-        {selectedNode.data.missingCatalog ? (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="目录中找不到此节点类型，连线校验可能失败。"
-          />
-        ) : null}
+      <InspectorShell>
+        <SidebarSection
+          title="基本信息"
+          open={nodeOpenKeys.includes('info')}
+          onToggle={() => toggleNode('info')}
+        >
+          <Descriptions size="small" column={1} style={{ marginBottom: 0 }}>
+            <Descriptions.Item label="名称">{selectedNode.data.label}</Descriptions.Item>
+            <Descriptions.Item label="类型 ID">
+              <Typography.Text code>{selectedNode.data.typeId}</Typography.Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="实例 ID">
+              <Typography.Text code>{selectedNode.id}</Typography.Text>
+            </Descriptions.Item>
+          </Descriptions>
+          {selectedNode.data.missingCatalog ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 8 }}
+              message="目录中找不到此节点类型，连线校验可能失败。"
+            />
+          ) : null}
+          {!spec ? (
+            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              无规格信息
+            </Typography.Text>
+          ) : null}
+        </SidebarSection>
+
         {spec ? (
           <>
-            <div style={{ marginBottom: 16 }}>
-              <Typography.Title level={5} style={{ fontSize: 14 }}>
-                当前环境
-              </Typography.Title>
-              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-                为该脚本节点选择运行时使用的环境（可多选）。
-              </Typography.Paragraph>
+            <SidebarSection
+              title="环境（可选）"
+              open={nodeOpenKeys.includes('env')}
+              onToggle={() => toggleNode('env')}
+            >
               <Select
-                mode="multiple"
                 allowClear
                 showSearch
                 optionFilterProp="label"
-                maxTagCount="responsive"
                 style={{ width: '100%' }}
-                placeholder={
-                  environments.items.length === 0 ? '暂无可用环境，请先在左侧创建' : '选择环境'
-                }
+                placeholder={environments.items.length === 0 ? '暂无环境' : '选择环境'}
                 disabled={environments.items.length === 0}
-                value={nodeEnvIds}
+                status={envMissing ? 'warning' : undefined}
+                value={envId}
                 options={envOptions}
-                onChange={(v) => onNodeEnvIdsChange(selectedNode.id, v)}
+                onChange={(v) => {
+                  const env =
+                    typeof v === 'string' ? environments.items.find((i) => i.id === v) : undefined;
+                  const { values } = applyEnvToInputs(spec, env, inputValues);
+                  onNodeEnvChange(
+                    selectedNode.id,
+                    typeof v === 'string' ? v : undefined,
+                    Object.keys(values).length > 0 ? values : undefined,
+                  );
+                }}
               />
-            </div>
-            {Object.keys(spec.inputs).length > 0 ? (
-              <div style={{ marginBottom: 16 }}>
-                <Typography.Title level={5} style={{ fontSize: 14 }}>
-                  参数
-                </Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-                  按脚本声明的输入项填写，随工作流保存。
-                </Typography.Paragraph>
-                <ParamFields
-                  key={selectedNode.id}
-                  spec={spec}
-                  values={inputValues}
-                  onChange={(v) => onParamsChange(selectedNode.id, v)}
+              {envMissing ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  message={`找不到环境「${envId}」，请重新选择或清空。`}
                 />
-              </div>
-            ) : null}
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              {spec.description ? (
-                <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-                  {spec.description}
-                </Typography.Paragraph>
               ) : null}
+            </SidebarSection>
 
-              {envReqs.length > 0 ? (
-                <div>
-                  <Typography.Title level={5} style={{ fontSize: 14 }}>
-                    环境槽位绑定
-                  </Typography.Title>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-                    该脚本声明了命名槽位，请为每个槽位指定一个环境。
-                  </Typography.Paragraph>
-                  <Space direction="vertical" style={{ width: '100%' }} size="small">
-                    {envReqs.map((req) => {
-                      const bound = bindings[req.key];
-                      const missing = !bound;
-                      return (
-                        <div key={req.key}>
-                          <Typography.Text strong>{req.name}</Typography.Text>{' '}
-                          <Typography.Text code type="secondary">
-                            {req.key}
-                          </Typography.Text>
-                          {req.description ? (
-                            <Typography.Paragraph
-                              type="secondary"
-                              style={{ margin: '2px 0 6px', fontSize: 12 }}
-                            >
-                              {req.description}
-                            </Typography.Paragraph>
-                          ) : (
-                            <div style={{ height: 6 }} />
-                          )}
-                          <Select
-                            style={{ width: '100%' }}
-                            placeholder="选择环境"
-                            allowClear
-                            showSearch
-                            optionFilterProp="label"
-                            status={missing ? 'warning' : undefined}
-                            value={bound}
-                            options={envOptions}
-                            onChange={(v) => onEnvBindingChange(selectedNode.id, req.key, v)}
-                          />
-                        </div>
-                      );
-                    })}
-                  </Space>
-                </div>
-              ) : null}
+            <SidebarSection
+              title={`输入（${inputCount}）`}
+              open={nodeOpenKeys.includes('inputs')}
+              onToggle={() => toggleNode('inputs')}
+            >
+              <ParamFields
+                key={`${selectedNode.id}:${envId ?? ''}`}
+                spec={spec}
+                values={inputValues}
+                envValues={selectedEnv?.values}
+                onChange={(v) => onParamsChange(selectedNode.id, v)}
+              />
+            </SidebarSection>
 
-              <FieldBlock title="输出" fields={spec.outputs} />
-            </Space>
+            <SidebarSection
+              title={`输出（${outputCount}）`}
+              open={nodeOpenKeys.includes('outputs')}
+              onToggle={() => toggleNode('outputs')}
+            >
+              <FieldList fields={spec.outputs} />
+            </SidebarSection>
           </>
-        ) : (
-          <Typography.Text type="secondary">无规格信息</Typography.Text>
-        )}
-      </aside>
+        ) : null}
+      </InspectorShell>
     );
   }
 
@@ -273,35 +344,50 @@ export function Inspector({
       sourceField && targetField ? isCompatible(sourceField, targetField) : false;
 
     return (
-      <aside className="editor-sidebar editor-sidebar-right">
-        <Typography.Title level={5} style={{ marginTop: 0 }}>
-          连线
-        </Typography.Title>
-        <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
-          <Descriptions.Item label="源">
-            {sourceNode?.data.label ?? selectedEdge.source} ·{' '}
-            <Typography.Text code>{sourcePort || '—'}</Typography.Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="目标">
-            {targetNode?.data.label ?? selectedEdge.target} ·{' '}
-            <Typography.Text code>{targetPort || '—'}</Typography.Text>
-          </Descriptions.Item>
-        </Descriptions>
-        <Typography.Title level={5} style={{ fontSize: 14 }}>
-          类型
-        </Typography.Title>
-        <Typography.Paragraph>
-          输出：<Typography.Text code>{sourceField ? fieldSummary(sourceField) : '未知'}</Typography.Text>
-        </Typography.Paragraph>
-        <Typography.Paragraph>
-          输入：<Typography.Text code>{targetField ? fieldSummary(targetField) : '未知'}</Typography.Text>
-        </Typography.Paragraph>
-        {sourceField && targetField ? (
-          <Tag color={compatible ? 'success' : 'error'}>{compatible ? '类型兼容' : '类型不兼容'}</Tag>
-        ) : (
-          <Tag>无法校验（缺少端口或规格）</Tag>
-        )}
-      </aside>
+      <InspectorShell>
+        <SidebarSection
+          title="连线"
+          open={edgeOpenKeys.includes('info')}
+          onToggle={() => toggleEdge('info')}
+        >
+          <Descriptions size="small" column={1}>
+            <Descriptions.Item label="源">
+              {sourceNode?.data.label ?? selectedEdge.source} ·{' '}
+              <Typography.Text code>{sourcePort || '—'}</Typography.Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="目标">
+              {targetNode?.data.label ?? selectedEdge.target} ·{' '}
+              <Typography.Text code>{targetPort || '—'}</Typography.Text>
+            </Descriptions.Item>
+          </Descriptions>
+        </SidebarSection>
+
+        <SidebarSection
+          title="类型"
+          open={edgeOpenKeys.includes('types')}
+          onToggle={() => toggleEdge('types')}
+        >
+          <Typography.Paragraph style={{ marginBottom: 8 }}>
+            输出：
+            <Typography.Text code>
+              {sourceField ? fieldSummary(sourceField) : '未知'}
+            </Typography.Text>
+          </Typography.Paragraph>
+          <Typography.Paragraph style={{ marginBottom: 8 }}>
+            输入：
+            <Typography.Text code>
+              {targetField ? fieldSummary(targetField) : '未知'}
+            </Typography.Text>
+          </Typography.Paragraph>
+          {sourceField && targetField ? (
+            <Tag color={compatible ? 'success' : 'error'}>
+              {compatible ? '类型兼容' : '类型不兼容'}
+            </Tag>
+          ) : (
+            <Tag>无法校验（缺少端口或规格）</Tag>
+          )}
+        </SidebarSection>
+      </InspectorShell>
     );
   }
 

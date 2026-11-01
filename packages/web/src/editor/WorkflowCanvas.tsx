@@ -94,11 +94,13 @@ const WorkflowCanvasInner = forwardRef<WorkflowCanvasRef, InnerProps>(function W
     [getViewport, setNodes],
   );
 
+  // 仅在新建/打开（resetKey）时从文档重建；保存更新 document 时保留画布选中态
   useEffect(() => {
     const { nodes: n, edges: e } = documentToFlow(document, specByTypeId);
     setNodes(n);
     setEdges(e);
-  }, [resetKey, document, setNodes, setEdges, specByTypeId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意不监听 document
+  }, [resetKey, setNodes, setEdges, specByTypeId]);
 
   useEffect(() => {
     setNodes((nds) => {

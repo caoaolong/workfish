@@ -1,17 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Card,
   Col,
-  Descriptions,
-  Divider,
   Empty,
-  Input,
-  Modal,
   Row,
-  Select,
-  Space,
   Tag,
   Typography,
   App as AntdApp,
@@ -19,18 +12,9 @@ import {
 import { DeleteOutlined, EditOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import type { EnvironmentCatalog, NodeSpec } from '@workfish/spec';
 import type { NodeCatalogItem } from '../types.js';
-import {
-  answerRunInput,
-  createRunSession,
-  deleteNode,
-  formatApiError,
-  killRunSession,
-  putNodeMeta,
-  type InputRequestOption,
-  type RunEvent,
-} from '../api/client.js';
+import { deleteNode, formatApiError, putNodeMeta } from '../api/client.js';
 import { MetaEditorModal } from './MetaEditorModal.js';
-import { ParamFields } from './ParamFields.js';
+import { NodeRunModal } from './NodeRunModal.js';
 
 type Props = {
   ready: NodeCatalogItem[];
@@ -39,12 +23,45 @@ type Props = {
   onChanged: () => Promise<void> | void;
 };
 
-function stringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2) ?? 'null';
-  } catch {
-    return String(value);
+/** 根据节点 id 生成稳定封面色相，避免依赖外部图片资源 */
+function coverStyleForId(id: string): { background: string; accent: string } {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   }
+  const hue = hash % 360;
+  // 避开偏紫区间，用青绿 / 琥珀 / 蓝绿系
+  const h = hue > 250 && hue < 310 ? (hue + 80) % 360 : hue;
+  return {
+    background: `linear-gradient(145deg, hsl(${h} 42% 28%) 0%, hsl(${(h + 36) % 360} 48% 18%) 55%, hsl(${(h + 72) % 360} 36% 12%) 100%)`,
+    accent: `hsl(${h} 55% 62%)`,
+  };
+}
+
+/** 驼峰 / kebab / snake 名称取各段首字母，如 WordFix → WF，word-fix → WF */
+function nameInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return '#';
+  }
+  if (/[-_\s]/.test(trimmed)) {
+    return trimmed
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 4);
+  }
+  const parts = trimmed.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+/g);
+  if (parts && parts.length > 0) {
+    return parts
+      .map((part) => part.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 4);
+  }
+  return trimmed.charAt(0).toUpperCase();
 }
 
 function NodeCard({
@@ -60,383 +77,79 @@ function NodeCard({
 }) {
   const isReady = item.status === 'ready' && item.spec;
   const spec = item.spec;
+  const title = spec?.name ?? item.id;
+  const cover = coverStyleForId(item.id);
+  // 优先用展示名的驼峰缩写；无多段时回退到 id（如 word-fix → WF）
+  const mark = nameInitials(title) || nameInitials(item.id) || '#';
+
   return (
-    <Card
-      title={
-        <Typography.Text ellipsis style={{ maxWidth: '100%' }}>
-          {spec?.name ?? item.id}
-        </Typography.Text>
-      }
-      extra={
-        <Space size={4}>
+    <article className={`app-card${isReady ? '' : ' is-error'}`}>
+      <div className="app-card-cover" style={{ background: cover.background }}>
+        <div className="app-card-cover-glow" style={{ background: cover.accent }} />
+        <div className="app-card-cover-mark" aria-hidden>
+          {mark}
+        </div>
+        <div className="app-card-cover-badges">
           <Tag color={isReady ? 'success' : 'error'}>{isReady ? '就绪' : '异常'}</Tag>
           <Tag>{item.runtime}</Tag>
-        </Space>
-      }
-      actions={[
-        <Button key="run" type="link" icon={<PlayCircleOutlined />} disabled={!isReady} onClick={onRun}>
-          运行
-        </Button>,
-        <Button key="edit" type="link" icon={<EditOutlined />} disabled={!isReady} onClick={onEdit}>
-          编辑
-        </Button>,
-        <Button key="delete" type="link" danger icon={<DeleteOutlined />} onClick={onDelete}>
-          删除
-        </Button>,
-      ]}
-    >
-      {spec?.description ? (
-        <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ marginBottom: 8 }}>
-          {spec.description}
-        </Typography.Paragraph>
-      ) : null}
-      <Descriptions size="small" column={1}>
-        <Descriptions.Item label="ID">
-          <Typography.Text code copyable={{ tooltips: false }}>{item.id}</Typography.Text>
-        </Descriptions.Item>
-        {spec ? (
-          <>
-            <Descriptions.Item label="版本">{spec.version}</Descriptions.Item>
-            <Descriptions.Item label="输入/输出">
-              {Object.keys(spec.inputs).length} / {Object.keys(spec.outputs).length} 个端口
-            </Descriptions.Item>
-            {(spec.environments?.length ?? 0) > 0 ? (
-              <Descriptions.Item label="环境槽位">
-                {spec.environments!.map((s) => s.key).join('、')}
-              </Descriptions.Item>
-            ) : null}
-          </>
-        ) : null}
-      </Descriptions>
-      {!isReady && item.errors && item.errors.length > 0 ? (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginTop: 8 }}
-          message="脚本存在问题，运行与编辑已禁用"
-          description={
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {item.errors.map((e, i) => (
-                <li key={i}>
-                  <Typography.Text code>{e.path || '—'}</Typography.Text> {e.message}
-                </li>
-              ))}
-            </ul>
-          }
-        />
-      ) : null}
-    </Card>
-  );
-}
-
-type InputReq = {
-  id: string;
-  prompt: string;
-  options: InputRequestOption;
-};
-
-function RunModal({
-  item,
-  environments,
-  open,
-  onClose,
-}: {
-  item: NodeCatalogItem | null;
-  environments: EnvironmentCatalog;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const { message } = AntdApp.useApp();
-  const [envId, setEnvId] = useState<string | undefined>(undefined);
-  const [inputs, setInputs] = useState<Record<string, unknown> | undefined>(undefined);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [prints, setPrints] = useState<string[]>([]);
-  const [inputQueue, setInputQueue] = useState<InputReq[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [answering, setAnswering] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; outputs?: unknown; error?: string; durationMs: number } | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const sessionRef = useRef<string | null>(null);
-
-  const spec: NodeSpec | undefined = item?.spec;
-  const envOptions = useMemo(
-    () => environments.items.map((e) => ({ value: e.id, label: `${e.name}（${Object.keys(e.values).length} 个变量）` })),
-    [environments],
-  );
-
-  // 关闭弹窗时清理：断开 SSE 并终止会话
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    return () => {
-      eventSourceRef.current?.close();
-      eventSourceRef.current = null;
-      const sid = sessionRef.current;
-      sessionRef.current = null;
-      setSessionId(null);
-      setRunning(false);
-      setLogs([]);
-      setPrints([]);
-      setInputQueue([]);
-      setResult(null);
-      setInputs(undefined);
-      setEnvId(undefined);
-      if (sid) {
-        killRunSession(sid).catch(() => undefined);
-      }
-    };
-  }, [open, item]);
-
-  // 打开输入弹窗时预填默认值
-  const currentInput = inputQueue[0];
-  useEffect(() => {
-    if (currentInput) {
-      setInputValue(currentInput.options.default ?? '');
-    }
-  }, [currentInput?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const startRun = async () => {
-    if (!item) {
-      return;
-    }
-    setLogs([]);
-    setPrints([]);
-    setInputQueue([]);
-    setResult(null);
-    setRunning(true);
-    try {
-      const { sessionId: sid } = await createRunSession(item.id, {
-        ...(inputs ? { inputs } : {}),
-        ...(envId ? { envId } : {}),
-      });
-      sessionRef.current = sid;
-      setSessionId(sid);
-      const es = new EventSource(`/api/runs/${encodeURIComponent(sid)}/events`);
-      eventSourceRef.current = es;
-      es.onmessage = (ev) => {
-        try {
-          const event = JSON.parse(ev.data) as RunEvent;
-          if (event.type === 'log') {
-            setLogs((prev) => [...prev.slice(-499), event.text]);
-          } else if (event.type === 'printf') {
-            setPrints((prev) => [...prev.slice(-499), event.text]);
-          } else if (event.type === 'input_request') {
-            setInputQueue((prev) =>
-              prev.some((q) => q.id === event.id)
-                ? prev
-                : [...prev, { id: event.id, prompt: event.prompt, options: event.options }],
-            );
-          } else if (event.type === 'done') {
-            setResult({
-              ok: event.ok,
-              ...(event.ok ? { outputs: event.outputs } : { error: event.error }),
-              durationMs: event.durationMs,
-            });
-            setRunning(false);
-            es.close();
-          }
-        } catch {
-          // 忽略畸形事件
-        }
-      };
-      es.onerror = () => {
-        // SSE 中断：会话仍在服务端继续，提示用户但不断言失败
-        es.close();
-        setRunning(false);
-      };
-    } catch (e) {
-      const msg = formatApiError(e);
-      message.error(msg);
-      setRunning(false);
-      setResult({ ok: false, error: msg, durationMs: 0 });
-    }
-  };
-
-  const submitInput = async () => {
-    const sid = sessionRef.current;
-    if (!sid || !currentInput) {
-      return;
-    }
-    setAnswering(true);
-    try {
-      await answerRunInput(sid, { requestId: currentInput.id, value: inputValue });
-      setInputQueue((prev) => prev.filter((q) => q.id !== currentInput.id));
-    } catch (e) {
-      message.error(formatApiError(e));
-    } finally {
-      setAnswering(false);
-    }
-  };
-
-  const cancelRun = async () => {
-    const sid = sessionRef.current;
-    if (!sid) {
-      return;
-    }
-    setAnswering(true);
-    try {
-      await answerRunInput(sid, { requestId: currentInput?.id ?? '', cancelled: true }).catch(() =>
-        killRunSession(sid),
-      );
-    } finally {
-      setAnswering(false);
-      setInputQueue([]);
-    }
-  };
-
-  return (
-    <Modal
-      title={item ? `运行 · ${item.spec?.name ?? item.id}` : '运行'}
-      open={open}
-      onCancel={onClose}
-      width={680}
-      destroyOnHidden
-      footer={
-        sessionId || result
-          ? [
-              <Button key="close" onClick={onClose}>
-                关闭
-              </Button>,
-            ]
-          : [
-              <Button key="cancel" onClick={onClose}>
-                取消
-              </Button>,
-              <Button key="run" type="primary" loading={running} onClick={() => void startRun()}>
-                运行
-              </Button>,
-            ]
-      }
-    >
-      {!sessionId && !result && spec ? (
-        <>
-          <Typography.Title level={5} style={{ fontSize: 14 }}>
-            环境（可选）
-          </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-            所选环境的键值对将作为环境变量注入（脚本经 process.env / os.environ 读取）。环境槽位绑定仅在工作流中使用，此处统一注入。
+        </div>
+        <div className="app-card-cover-actions">
+          <Button
+            type="primary"
+            shape="round"
+            icon={<PlayCircleOutlined />}
+            disabled={!isReady}
+            onClick={onRun}
+          >
+            运行
+          </Button>
+          <Button
+            shape="circle"
+            icon={<EditOutlined />}
+            onClick={onEdit}
+            title="编辑元信息（名称 / 输入 / 输出等）"
+          />
+          <Button
+            shape="circle"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={onDelete}
+            title="删除"
+          />
+        </div>
+      </div>
+      <div className="app-card-body">
+        <Typography.Title level={5} ellipsis={{ rows: 1 }} className="app-card-title">
+          {title}
+        </Typography.Title>
+        <Typography.Text type="secondary" ellipsis className="app-card-id">
+          {item.id}
+          {spec?.version ? ` · v${spec.version}` : ''}
+        </Typography.Text>
+        {spec?.description ? (
+          <Typography.Paragraph type="secondary" ellipsis={{ rows: 1 }} className="app-card-desc">
+            {spec.description}
           </Typography.Paragraph>
-          <Select
-            style={{ width: '100%', marginBottom: 16 }}
-            placeholder={environments.items.length === 0 ? '暂无环境，可直接运行' : '选择注入的环境'}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            value={envId}
-            options={envOptions}
-            onChange={(v) => setEnvId(v)}
+        ) : null}
+        {!isReady && item.errors && item.errors.length > 0 ? (
+          <Alert
+            type="error"
+            showIcon
+            className="app-card-alert"
+            message="脚本存在问题"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {item.errors.slice(0, 2).map((e, i) => (
+                  <li key={i}>
+                    <Typography.Text code>{e.path || '—'}</Typography.Text> {e.message}
+                  </li>
+                ))}
+              </ul>
+            }
           />
-          <Typography.Title level={5} style={{ fontSize: 14 }}>
-            输入参数
-          </Typography.Title>
-          <div style={{ marginBottom: 8 }} key={item?.id}>
-            <ParamFields spec={spec} values={inputs ?? {}} onChange={setInputs} />
-          </div>
-        </>
-      ) : null}
-
-      {sessionId || result ? (
-        <>
-          <Typography.Title level={5} style={{ fontSize: 14 }}>
-            输出
-            <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              {running ? '运行中…' : result ? `耗时 ${result.durationMs} ms` : ''}
-            </Typography.Text>
-          </Typography.Title>
-          {prints.length > 0 ? (
-            <Typography.Text style={{ display: 'block', whiteSpace: 'pre-wrap', marginBottom: 8 }}>
-              {prints.join('\n')}
-            </Typography.Text>
-          ) : (
-            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              （暂无脚本输出，可在脚本中调用 wf_printf 发送）
-            </Typography.Text>
-          )}
-          {logs.length > 0 ? (
-            <>
-              <Typography.Title level={5} style={{ fontSize: 14 }}>
-                日志
-              </Typography.Title>
-              <Typography.Text
-                type="secondary"
-                style={{ display: 'block', whiteSpace: 'pre-wrap', fontSize: 12, marginBottom: 8 }}
-              >
-                {logs.join('\n')}
-              </Typography.Text>
-            </>
-          ) : null}
-          {result ? (
-            result.ok ? (
-              <>
-                <Divider style={{ margin: '12px 0' }} />
-                <Space size={8} style={{ marginBottom: 8 }}>
-                  <Tag color="success">成功</Tag>
-                </Space>
-                <Typography.Title level={5} style={{ fontSize: 14 }}>
-                  返回值
-                </Typography.Title>
-                <Typography.Text code style={{ display: 'block', whiteSpace: 'pre-wrap' }}>
-                  {stringify(result.outputs)}
-                </Typography.Text>
-              </>
-            ) : (
-              <Alert
-                type="error"
-                showIcon
-                message="运行失败"
-                description={result.error}
-                style={{ marginTop: 8 }}
-              />
-            )
-          ) : null}
-        </>
-      ) : null}
-
-      {/* 脚本请求输入时弹出的用户输入对话框 */}
-      <Modal
-        title="脚本请求输入"
-        open={Boolean(currentInput)}
-        onCancel={() => void cancelRun()}
-        destroyOnHidden
-        footer={[
-          <Button key="cancel" danger onClick={() => void cancelRun()} loading={answering}>
-            取消运行
-          </Button>,
-          <Button key="ok" type="primary" onClick={() => void submitInput()} loading={answering}>
-            提交
-          </Button>,
-        ]}
-      >
-        <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-          {currentInput?.prompt}
-        </Typography.Paragraph>
-        {currentInput?.options.multiline ? (
-          <Input.TextArea
-            rows={4}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            autoFocus
-          />
-        ) : currentInput?.options.password ? (
-          <Input.Password
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            autoFocus
-            onPressEnter={() => void submitInput()}
-          />
-        ) : (
-          <Input
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            autoFocus
-            onPressEnter={() => void submitInput()}
-          />
-        )}
-      </Modal>
-    </Modal>
+        ) : null}
+      </div>
+    </article>
   );
 }
 
@@ -446,6 +159,23 @@ export function AppWall({ ready, problems, environments, onChanged }: Props) {
   const [editTarget, setEditTarget] = useState<NodeCatalogItem | null>(null);
 
   const all = useMemo(() => [...ready, ...problems], [ready, problems]);
+
+  const editInitialSpec = useMemo((): NodeSpec | null => {
+    if (!editTarget) {
+      return null;
+    }
+    if (editTarget.spec) {
+      return editTarget.spec;
+    }
+    // 异常脚本无可用 spec 时，仍允许从空输入/输出开始编辑并写回 meta
+    return {
+      id: editTarget.id,
+      name: editTarget.id,
+      version: '0.1.0',
+      inputs: {},
+      outputs: {},
+    };
+  }, [editTarget]);
 
   const handleEditSave = async (meta: NodeSpec) => {
     if (!editTarget) {
@@ -487,9 +217,9 @@ export function AppWall({ ready, problems, environments, onChanged }: Props) {
 
   return (
     <div className="app-wall">
-      <Row gutter={[16, 16]}>
+      <Row gutter={[12, 12]}>
         {all.map((item) => (
-          <Col key={item.id} xs={24} sm={12} lg={8} xxl={6}>
+          <Col key={item.id} xs={12} sm={8} md={6} lg={6} xl={4} xxl={3}>
             <NodeCard
               item={item}
               onRun={() => setRunTarget(item)}
@@ -500,8 +230,12 @@ export function AppWall({ ready, problems, environments, onChanged }: Props) {
         ))}
       </Row>
 
-      <RunModal
-        item={runTarget}
+      <NodeRunModal
+        target={
+          runTarget
+            ? { id: runTarget.id, name: runTarget.spec?.name, spec: runTarget.spec }
+            : null
+        }
         environments={environments}
         open={Boolean(runTarget)}
         onClose={() => setRunTarget(null)}
@@ -509,7 +243,7 @@ export function AppWall({ ready, problems, environments, onChanged }: Props) {
 
       <MetaEditorModal
         open={Boolean(editTarget)}
-        initial={editTarget?.spec ?? null}
+        initial={editInitialSpec}
         onCancel={() => setEditTarget(null)}
         onSave={handleEditSave}
       />

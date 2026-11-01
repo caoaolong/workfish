@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@workfish/spec": "workspace:*",
+    "mysql2": "^3.24.6",
     "tsx": "^4.19.2"
   },
   "devDependencies": {

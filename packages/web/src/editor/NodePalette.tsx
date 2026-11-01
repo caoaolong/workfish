@@ -15,10 +15,6 @@ type Props = {
 export function NodePalette({ ready, problems }: Props) {
   return (
     <div className="node-palette">
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-        拖拽到画布以添加节点
-      </Typography.Paragraph>
-
       {ready.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可用节点" />
       ) : (
