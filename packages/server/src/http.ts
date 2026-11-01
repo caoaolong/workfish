@@ -13,6 +13,7 @@ import {
   putWorkflowById,
 } from './catalog-service.js';
 import { getEnvironmentCatalog, putEnvironmentCatalog } from './environments-service.js';
+import { getMonitorCatalog, putMonitorCatalog } from './monitors-service.js';
 import { deleteNodeById, putNodeMetaById } from './node-source.js';
 import { runNodeById } from './run-service.js';
 import {
@@ -356,6 +357,27 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       try {
         const body = await readJsonBody(req);
         sendJson(res, 200, putEnvironmentCatalog(body));
+      } catch (e) {
+        const err = handleCatalogError(e);
+        sendError(res, err.status, err.code, err.message, err.details);
+      }
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/monitors') {
+      try {
+        sendJson(res, 200, getMonitorCatalog());
+      } catch (e) {
+        const err = handleCatalogError(e);
+        sendError(res, err.status, err.code, err.message, err.details);
+      }
+      return;
+    }
+
+    if (method === 'PUT' && pathname === '/api/monitors') {
+      try {
+        const body = await readJsonBody(req);
+        sendJson(res, 200, putMonitorCatalog(body));
       } catch (e) {
         const err = handleCatalogError(e);
         sendError(res, err.status, err.code, err.message, err.details);

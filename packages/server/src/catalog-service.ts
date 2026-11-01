@@ -174,6 +174,7 @@ export function handleCatalogError(
       return { status: 504, code, message: err.message };
     case 'WORKFLOW_INVALID':
     case 'ENV_INVALID':
+    case 'MONITOR_INVALID':
     case 'VALIDATION_FAILED':
       return {
         status: 400,

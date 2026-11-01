@@ -4,6 +4,9 @@ import type {
   EnvironmentItem,
   EnvRequirement,
   FieldSpec,
+  MonitorCatalog,
+  MonitorEnvLink,
+  MonitorItem,
   NodeSpec,
   WorkflowDocument,
   WorkflowEdge,
@@ -421,6 +424,109 @@ export function validateEnvironmentCatalog(input: unknown): ValidateResult<Envir
       if (id && name) {
         // 兼容旧文件：遗留的 groupId 直接丢弃。
         items.push({ id, name, values });
+      }
+    });
+  }
+
+  if (errors.length > 0 || input.version !== 1) {
+    return { ok: false, errors };
+  }
+  return { ok: true, value: { version: 1, items } };
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function validateMonitorCatalog(input: unknown): ValidateResult<MonitorCatalog> {
+  const errors: Diagnostic[] = [];
+  if (!isRecord(input)) {
+    return { ok: false, errors: [{ path: '', message: 'MonitorCatalog 必须是对象' }] };
+  }
+  if (input.version !== 1) {
+    pushError(errors, 'version', 'version 必须为 1');
+  }
+  if (!Array.isArray(input.items)) {
+    pushError(errors, 'items', 'items 必须是数组');
+  }
+
+  const items: MonitorItem[] = [];
+  const itemIds = new Set<string>();
+  if (Array.isArray(input.items)) {
+    input.items.forEach((raw, index) => {
+      const path = `items[${index}]`;
+      if (!isRecord(raw)) {
+        pushError(errors, path, '监控项必须是对象');
+        return;
+      }
+      const id = requireString(raw, 'id', `${path}.id`, errors);
+      const name = requireString(raw, 'name', `${path}.name`, errors);
+      if (id && itemIds.has(id)) {
+        pushError(errors, `${path}.id`, `重复的监控 id: ${id}`);
+      }
+      if (id) {
+        itemIds.add(id);
+      }
+
+      let description: string | undefined;
+      if (raw.description !== undefined) {
+        if (typeof raw.description !== 'string') {
+          pushError(errors, `${path}.description`, 'description 必须是字符串');
+        } else if (raw.description.trim()) {
+          description = raw.description.trim();
+        }
+      }
+
+      // 兼容旧数据：仅有 url 时迁移为单一「默认」环境
+      let rawEnvs: unknown = raw.environments;
+      if (!Array.isArray(rawEnvs) && typeof raw.url === 'string' && raw.url.trim()) {
+        rawEnvs = [{ name: '默认', url: raw.url.trim() }];
+      }
+      if (!Array.isArray(rawEnvs)) {
+        pushError(errors, `${path}.environments`, 'environments 必须是数组');
+        return;
+      }
+      if (rawEnvs.length === 0) {
+        pushError(errors, `${path}.environments`, '至少需要一个环境链接');
+      }
+
+      const environments: MonitorEnvLink[] = [];
+      const envNames = new Set<string>();
+      rawEnvs.forEach((envRaw, envIndex) => {
+        const envPath = `${path}.environments[${envIndex}]`;
+        if (!isRecord(envRaw)) {
+          pushError(errors, envPath, '环境链接必须是对象');
+          return;
+        }
+        const envName = requireString(envRaw, 'name', `${envPath}.name`, errors);
+        const envUrl = requireString(envRaw, 'url', `${envPath}.url`, errors);
+        if (envName) {
+          const key = envName.toLowerCase();
+          if (envNames.has(key)) {
+            pushError(errors, `${envPath}.name`, `重复的环境名: ${envName}`);
+          } else {
+            envNames.add(key);
+          }
+        }
+        if (envUrl && !isHttpUrl(envUrl)) {
+          pushError(errors, `${envPath}.url`, 'url 必须是 http(s) 地址');
+        }
+        if (envName && envUrl && isHttpUrl(envUrl)) {
+          environments.push({ name: envName, url: envUrl });
+        }
+      });
+
+      if (id && name && environments.length > 0) {
+        const item: MonitorItem = { id, name, environments };
+        if (description) {
+          item.description = description;
+        }
+        items.push(item);
       }
     });
   }

@@ -1,4 +1,4 @@
-import type { EnvironmentCatalog } from '@workfish/spec';
+import type { EnvironmentCatalog, MonitorCatalog } from '@workfish/spec';
 import type {
   ApiErrorBody,
   BootstrapResponse,
@@ -183,6 +183,17 @@ export function getEnvironments(): Promise<EnvironmentCatalog> {
 
 export function putEnvironments(body: EnvironmentCatalog): Promise<EnvironmentCatalog> {
   return request<EnvironmentCatalog>('/api/environments', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getMonitors(): Promise<MonitorCatalog> {
+  return request<MonitorCatalog>('/api/monitors');
+}
+
+export function putMonitors(body: MonitorCatalog): Promise<MonitorCatalog> {
+  return request<MonitorCatalog>('/api/monitors', {
     method: 'PUT',
     body: JSON.stringify(body),
   });

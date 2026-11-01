@@ -4,14 +4,16 @@ import {
   CodeOutlined,
   FileAddOutlined,
   FolderOpenOutlined,
+  PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
 import type { Edge, Node, OnSelectionChangeParams } from '@xyflow/react';
-import type { EnvironmentCatalog, NodeSpec } from '@workfish/spec';
+import type { EnvironmentCatalog, MonitorCatalog, NodeSpec } from '@workfish/spec';
 import {
   formatApiError,
   getEnvironments,
+  getMonitors,
   getNodes,
   postNodesRescan,
   getWorkflow,
@@ -21,6 +23,7 @@ import {
 import type { NodeCatalogItem, WorkfishConfig, WorkflowDocument } from '../types.js';
 import { Inspector } from './Inspector.js';
 import { AppWall } from './AppWall.js';
+import { MonitorWall, type MonitorWallHandle } from './MonitorWall.js';
 import {
   EditorNodeActionsContext,
   type NodeRunRequest,
@@ -83,6 +86,10 @@ export function EditorPage({ config, initWarning }: Props) {
     version: 1,
     items: [],
   });
+  const [monitors, setMonitors] = useState<MonitorCatalog>({
+    version: 1,
+    items: [],
+  });
   const [workflowMeta, setWorkflowMeta] = useState<Pick<WorkflowDocument, 'id' | 'name' | 'version'>>({
     version: 1,
     id: 'untitled',
@@ -101,7 +108,8 @@ export function EditorPage({ config, initWarning }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [bootLoading, setBootLoading] = useState(true);
   const [workflowListOpen, setWorkflowListOpen] = useState(false);
-  const [mode, setMode] = useState<'flow' | 'apps'>('flow');
+  const [mode, setMode] = useState<'flow' | 'apps' | 'monitors'>('flow');
+  const monitorWallRef = useRef<MonitorWallHandle>(null);
   const [consoleHeight, setConsoleHeight] = useState(() =>
     readStoredWidth(CONSOLE_HEIGHT_KEY, CONSOLE_DEFAULT),
   );
@@ -152,12 +160,14 @@ export function EditorPage({ config, initWarning }: Props) {
   const refreshCatalog = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [nodes, envs] = await Promise.all([
+      const [nodes, envs, mons] = await Promise.all([
         postNodesRescan(),
         getEnvironments(),
+        getMonitors(),
       ]);
       setCatalog(nodes);
       setEnvironments(envs);
+      setMonitors(mons);
       message.success('资源已刷新');
     } catch (e) {
       message.error(formatApiError(e));
@@ -170,13 +180,15 @@ export function EditorPage({ config, initWarning }: Props) {
     setBootLoading(true);
     setLoadError(null);
     try {
-      const [nodes, envs, summaries] = await Promise.all([
+      const [nodes, envs, mons, summaries] = await Promise.all([
         getNodes(),
         getEnvironments(),
+        getMonitors(),
         listWorkflows(),
       ]);
       setCatalog(nodes);
       setEnvironments(envs);
+      setMonitors(mons);
       if (summaries.length > 0) {
         const first = summaries[0]!;
         const doc = await getWorkflow(first.id);
@@ -413,10 +425,11 @@ export function EditorPage({ config, initWarning }: Props) {
           <div className="editor-toolbar-center">
             <Segmented
               value={mode}
-              onChange={(v) => setMode(v as 'flow' | 'apps')}
+              onChange={(v) => setMode(v as 'flow' | 'apps' | 'monitors')}
               options={[
                 { value: 'flow', label: '工作流' },
                 { value: 'apps', label: '应用墙' },
+                { value: 'monitors', label: '监控台' },
               ]}
             />
           </div>
@@ -450,7 +463,8 @@ export function EditorPage({ config, initWarning }: Props) {
                     保存
                   </Button>
                 </>
-              ) : (
+              ) : null}
+              {mode === 'apps' ? (
                 <Button
                   icon={<ReloadOutlined />}
                   loading={refreshing}
@@ -458,7 +472,16 @@ export function EditorPage({ config, initWarning }: Props) {
                 >
                   刷新脚本
                 </Button>
-              )}
+              ) : null}
+              {mode === 'monitors' ? (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => monitorWallRef.current?.openCreate()}
+                >
+                  新建监控
+                </Button>
+              ) : null}
               <ThemeToggle />
             </Space>
           </div>
@@ -548,7 +571,8 @@ export function EditorPage({ config, initWarning }: Props) {
             onCancelInput={consoleApi.cancelPendingInput}
           />
         </div>
-      ) : (
+      ) : null}
+      {mode === 'apps' ? (
         <main className="app-wall-main">
           <AppWall
             ready={readyNodes}
@@ -559,7 +583,18 @@ export function EditorPage({ config, initWarning }: Props) {
             }}
           />
         </main>
-      )}
+      ) : null}
+      {mode === 'monitors' ? (
+        <main className="app-wall-main">
+          <MonitorWall
+            ref={monitorWallRef}
+            catalog={monitors}
+            onChanged={(next) => {
+              setMonitors(next);
+            }}
+          />
+        </main>
+      ) : null}
     </div>
     </EditorNodeActionsContext.Provider>
   );

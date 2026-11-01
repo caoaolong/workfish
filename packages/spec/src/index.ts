@@ -4,6 +4,9 @@ export type {
   EnvironmentItem,
   EnvRequirement,
   FieldSpec,
+  MonitorCatalog,
+  MonitorEnvLink,
+  MonitorItem,
   NodeCatalogItem,
   NodeSpec,
   WorkflowDocument,
@@ -13,6 +16,7 @@ export type {
 
 export {
   validateEnvironmentCatalog,
+  validateMonitorCatalog,
   validateNodeSpec,
   validateWorkflowDocument,
   type ValidateResult,

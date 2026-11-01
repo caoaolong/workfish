@@ -3,6 +3,7 @@ import path from 'node:path';
 import { extractMetaFromTs, extractMetaFromPy } from '@workfish/spec';
 import type { WorkfishRuntime } from './config.js';
 import { ensureEnvironmentsDir } from './environments-service.js';
+import { ensureMonitorsDir } from './monitors-service.js';
 import { ensureWfLib } from './wf-lib.js';
 
 const WORD_FIX_NODE_TS = `import { createConnection, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
@@ -346,6 +347,7 @@ export function ensureWorkspaceSkeleton(workspacePath: string, runtime: Workfish
   mkdirSync(path.join(workspacePath, 'nodes'), { recursive: true });
   mkdirSync(path.join(workspacePath, 'workflows'), { recursive: true });
   ensureEnvironmentsDir(workspacePath);
+  ensureMonitorsDir(workspacePath);
   ensureWfLib(workspacePath);
   removeLegacyNodes(workspacePath);
 

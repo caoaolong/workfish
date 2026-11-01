@@ -318,6 +318,22 @@ html[data-theme='dark'] .wizard-card {
   line-height: 1.4;
 }
 
+.monitor-card .app-card-body {
+  gap: 6px;
+}
+
+.monitor-card-envs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.monitor-card-env-btn {
+  max-width: 100%;
+}
+
 .app-card-alert {
   margin-top: 6px;
 }

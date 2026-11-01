@@ -36,6 +36,25 @@ export type EnvironmentCatalog = {
   items: EnvironmentItem[];
 };
 
+/** 同一监控项目下的某个环境入口 */
+export type MonitorEnvLink = {
+  name: string;
+  url: string;
+};
+
+/** 监控台项目卡片：底部可切换多个环境链接 */
+export type MonitorItem = {
+  id: string;
+  name: string;
+  description?: string;
+  environments: MonitorEnvLink[];
+};
+
+export type MonitorCatalog = {
+  version: 1;
+  items: MonitorItem[];
+};
+
 export type WorkflowNode = {
   id: string;
   typeId: string;
